@@ -71,6 +71,7 @@ import com.creanger.app.messenger.SendMessagesHelper;
 import com.creanger.app.messenger.SvgHelper;
 import com.creanger.app.messenger.UserConfig;
 import com.creanger.app.messenger.Utilities;
+import com.creanger.app.model.LocalModels;
 import com.creanger.app.messenger.VideoEditedInfo;
 import com.creanger.app.messenger.WebFile;
 import com.creanger.app.tgnet.ConnectionsManager;
@@ -135,6 +136,23 @@ public class ContentPreviewViewer {
     }
 
     public interface ContentPreviewViewerDelegate {
+        /* Creanger-local overloads. These keep the existing preview UI while allowing
+         * repository-backed sticker items to cross the preview boundary explicitly. */
+        default void sendSticker(LocalModels.LocalStickerItem sticker, String query, Object parent, boolean notify, int scheduleDate, int scheduleRepeatPeriod) {}
+        default void sendEmoji(LocalModels.LocalStickerItem emoji) {}
+        default void setAsEmojiStatus(LocalModels.LocalStickerItem document, Integer until) {}
+        default Boolean canSetAsStatus(LocalModels.LocalStickerItem document) { return null; }
+        default boolean needCopy(LocalModels.LocalStickerItem document) { return false; }
+        default void copyEmoji(LocalModels.LocalStickerItem document) {}
+        default boolean needRemoveFromRecent(LocalModels.LocalStickerItem document) { return false; }
+        default void removeFromRecent(LocalModels.LocalStickerItem document) {}
+        default boolean canEditSticker(LocalModels.LocalStickerItem document) { return false; }
+        default void editSticker(LocalModels.LocalStickerItem document) {}
+        default void openSet(LocalModels.LocalStickerSet set, boolean clearInputField) {}
+        default boolean canAddCaption(LocalModels.LocalStickerItem document) { return false; }
+        default boolean canDeleteSticker(LocalModels.LocalStickerItem document) { return false; }
+        default void deleteSticker(LocalModels.LocalStickerItem document) {}
+
         default ItemOptions getCustomItemOptions(@NonNull ViewGroup container, @NonNull View scrimView) {
             return null;
         }
