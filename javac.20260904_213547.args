@@ -1,9 +1,0 @@
--source
-8
--target
-8
--d
-/tmp/test_build
--sourcepath
-TMessagesProj/src/main/java
-TMessagesProj/src/main/java/com/creanger/app/messenger/AndroidUtilities.java

@@ -1,1 +1,11 @@
 
+.gradle/
+.idea/
+.freebuff/
+local.properties
+keystore.properties
+keystore/
+javac.*.args
+build/
+**/build/
+.DS_Store

@@ -1,7 +1,0 @@
--sourcepath
-TMessagesProj/src/main/java
--d
-/tmp/compile_test
---release
-8
-TMessagesProj/src/main/java/com/creanger/app/messenger/AndroidUtilities.java
