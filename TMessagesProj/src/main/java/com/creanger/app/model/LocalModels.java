@@ -234,9 +234,41 @@ public final class LocalModels {
         public final int h;
         @Nullable public final String url;
         public final int size;
+        public final List<LocalStickerItemAttribute> attributes;
 
         public LocalStickerItem(String id, String documentId, String type, int w, int h, @Nullable String url, int size) {
+            this(id, documentId, type, w, h, url, size, Collections.emptyList());
+        }
+
+        public LocalStickerItem(String id, String documentId, String type, int w, int h, @Nullable String url, int size, List<LocalStickerItemAttribute> attributes) {
             this.id = id; this.documentId = documentId; this.type = type; this.w = w; this.h = h; this.url = url; this.size = size;
+            this.attributes = attributes != null ? attributes : Collections.emptyList();
+        }
+    }
+
+    /** Renderer-facing sticker metadata attached to a local sticker item. */
+    public static final class LocalStickerItemAttribute {
+        @Nullable public final LocalStickerSet stickerset;
+        public final int w;
+        public final int h;
+
+        public LocalStickerItemAttribute(@Nullable LocalStickerSet stickerset, int w, int h) {
+            this.stickerset = stickerset;
+            this.w = w;
+            this.h = h;
+        }
+    }
+
+    /** Lightweight featured-sticker entry; network identity stays outside this model. */
+    public static final class LocalStickerSetCovered {
+        public final LocalStickerSet set;
+        @Nullable public final List<LocalStickerItem> covers;
+        @Nullable public final List<LocalStickerItem> documents;
+
+        public LocalStickerSetCovered(LocalStickerSet set, @Nullable List<LocalStickerItem> covers, @Nullable List<LocalStickerItem> documents) {
+            this.set = set;
+            this.covers = covers;
+            this.documents = documents;
         }
     }
 

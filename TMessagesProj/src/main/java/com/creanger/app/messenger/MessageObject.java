@@ -8,6 +8,8 @@
 
 package com.creanger.app.messenger;
 
+import com.creanger.app.model.LocalModels;
+
 import static com.creanger.app.messenger.AndroidUtilities.dp;
 import static com.creanger.app.messenger.AndroidUtilities.find;
 import static com.creanger.app.messenger.AndroidUtilities.replaceTags;
@@ -9466,36 +9468,6 @@ public class MessageObject {
         } else {
             return peer.user_id;
         }
-    }
-
-    public static boolean peersEqual(LocalModels.LocalPeer a, LocalModels.LocalPeer b) {
-        if (a == null && b == null) {
-            return true;
-        }
-        if (a == null || b == null) {
-            return false;
-        }
-        return a.kind == b.kind && a.id.equals(b.id);
-    }
-
-    public static boolean peersEqual(LocalModels.LocalPeer a, LocalModels.LocalPeer b) {
-        if (a == null && b == null) {
-            return true;
-        }
-        if (a == null || b == null) {
-            return false;
-        }
-        return a.kind == b.kind && a.id.equals(b.id);
-    }
-
-    public static boolean peersEqual(LocalModels.LocalPeer a, LocalModels.LocalPeer b) {
-        if (a == null && b == null) {
-            return true;
-        }
-        if (a == null || b == null) {
-            return false;
-        }
-        return a.kind == b.kind && a.id.equals(b.id);
     }
 
     public static boolean peersEqual(LocalModels.LocalPeer a, LocalModels.LocalPeer b) {

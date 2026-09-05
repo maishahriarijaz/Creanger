@@ -41,6 +41,7 @@ import com.creanger.app.messenger.AccountInstance;
 import com.creanger.app.messenger.AndroidUtilities;
 import com.creanger.app.messenger.ApplicationLoader;
 import com.creanger.app.messenger.BuildConfig;
+import com.creanger.app.tgnet.ConnectionsManager;
 import com.creanger.app.messenger.ContactsController;
 import com.creanger.app.messenger.DownloadController;
 import com.creanger.app.messenger.FileLoader;
