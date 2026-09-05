@@ -951,7 +951,10 @@ public class TLRPC {
     public static class TL_channels_editLocation extends TLObject {}
     public static class TL_channels_editPhoto extends TLObject {}
     public static class TL_channels_editTitle extends TLObject {}
-    public static class TL_channels_exportMessageLink extends TLObject {}
+    public static class TL_channels_exportMessageLink extends TLObject {
+        public int id;
+        public InputChannel channel;
+    }
     public static class TL_channels_getAdminLog extends TLObject {}
     public static class TL_channels_getAdminedPublicChannels extends TLObject {}
     public static class TL_channels_getChannelRecommendations extends TLObject {}
@@ -1246,7 +1249,7 @@ public class TLRPC {
     public static class TL_inputPeerPhotoFileLocation extends TLObject {}
     public static class TL_inputPeerSelf extends TLObject {}
     public static class TL_inputPeerUserFromMessage extends TLObject {}
-    public static class TL_inputPhoto extends TLObject {}
+    public static class TL_inputPhoto extends InputPhoto {}
     public static class TL_inputPhotoEmpty extends TLObject {}
     public static class TL_inputPhotoFileLocation extends TLObject {}
     public static class TL_inputPrivacyKeyAbout extends TLObject {}
