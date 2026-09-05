@@ -1,0 +1,94 @@
+{
+  "buildFiles": [
+    "/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/CMakeLists.txt",
+    "/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/voip/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/home/ijaz/Android/Sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/arm64-v8a",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/home/ijaz/Android/Sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/arm64-v8a",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "breakpad::@6890427a1f51a3e7e1df": {
+      "artifactName": "breakpad",
+      "abi": "arm64-v8a",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/arm64-v8a/libbreakpad.a",
+      "runtimeFiles": []
+    },
+    "tgcalls_tp::@6890427a1f51a3e7e1df": {
+      "artifactName": "tgcalls_tp",
+      "abi": "arm64-v8a",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/arm64-v8a/libtgcalls_tp.a",
+      "runtimeFiles": []
+    },
+    "voipandroid::@6890427a1f51a3e7e1df": {
+      "artifactName": "voipandroid",
+      "abi": "arm64-v8a",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/arm64-v8a/libvoipandroid.a",
+      "runtimeFiles": []
+    },
+    "rlottie::@6890427a1f51a3e7e1df": {
+      "artifactName": "rlottie",
+      "abi": "arm64-v8a",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/arm64-v8a/librlottie.a",
+      "runtimeFiles": []
+    },
+    "flac::@6890427a1f51a3e7e1df": {
+      "artifactName": "flac",
+      "abi": "arm64-v8a",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/arm64-v8a/libflac.a",
+      "runtimeFiles": []
+    },
+    "openh264::@6890427a1f51a3e7e1df": {
+      "artifactName": "openh264",
+      "abi": "arm64-v8a",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/arm64-v8a/libopenh264.a",
+      "runtimeFiles": []
+    },
+    "tgcalls::@6890427a1f51a3e7e1df": {
+      "artifactName": "tgcalls",
+      "abi": "arm64-v8a",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/arm64-v8a/libtgcalls.a",
+      "runtimeFiles": []
+    },
+    "tmessages.49::@6890427a1f51a3e7e1df": {
+      "artifactName": "tmessages.49",
+      "abi": "arm64-v8a",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/build/intermediates/cxx/Debug/59344w51/obj/arm64-v8a/libtmessages.49.so",
+      "runtimeFiles": []
+    },
+    "cpufeatures::@6890427a1f51a3e7e1df": {
+      "artifactName": "cpufeatures",
+      "abi": "arm64-v8a",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/arm64-v8a/libcpufeatures.a",
+      "runtimeFiles": []
+    },
+    "rnnoise::@6890427a1f51a3e7e1df": {
+      "artifactName": "rnnoise",
+      "abi": "arm64-v8a",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/arm64-v8a/librnnoise.a",
+      "runtimeFiles": []
+    },
+    "tgvoip::@6890427a1f51a3e7e1df": {
+      "artifactName": "tgvoip",
+      "abi": "arm64-v8a",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/arm64-v8a/libtgvoip.a",
+      "runtimeFiles": []
+    },
+    "sqlite::@6890427a1f51a3e7e1df": {
+      "artifactName": "sqlite",
+      "abi": "arm64-v8a",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/arm64-v8a/libsqlite.a",
+      "runtimeFiles": []
+    }
+  }
+}

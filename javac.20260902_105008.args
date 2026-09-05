@@ -1,0 +1,8 @@
+-cp
+/tmp
+-sourcepath
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/src/main/java
+-d
+/tmp/test_compile
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/src/main/java/com/creanger/app/tgnet/TLObject.java
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/src/main/java/com/creanger/app/tgnet/TLRPC.java

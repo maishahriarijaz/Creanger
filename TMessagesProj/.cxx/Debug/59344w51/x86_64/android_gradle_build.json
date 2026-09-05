@@ -1,0 +1,109 @@
+{
+  "buildFiles": [
+    "/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/CMakeLists.txt",
+    "/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/voip/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/home/ijaz/Android/Sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86_64",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/home/ijaz/Android/Sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86_64",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "breakpad::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "breakpad",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86_64/libbreakpad.a"
+    },
+    "cpufeatures::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "cpufeatures",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86_64/libcpufeatures.a"
+    },
+    "flac::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "flac",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86_64/libflac.a"
+    },
+    "openh264::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "openh264",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86_64/libopenh264.a"
+    },
+    "rlottie::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "rlottie",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86_64/librlottie.a"
+    },
+    "rnnoise::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "rnnoise",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86_64/librnnoise.a"
+    },
+    "sqlite::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "sqlite",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86_64/libsqlite.a"
+    },
+    "tgcalls::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "tgcalls",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86_64/libtgcalls.a"
+    },
+    "tgcalls_tp::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "tgcalls_tp",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86_64/libtgcalls_tp.a"
+    },
+    "tgvoip::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "tgvoip",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86_64/libtgvoip.a"
+    },
+    "tmessages.49::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "tmessages.49",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/build/intermediates/cxx/Debug/59344w51/obj/x86_64/libtmessages.49.so",
+      "runtimeFiles": []
+    },
+    "voipandroid::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "voipandroid",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86_64/libvoipandroid.a"
+    }
+  },
+  "toolchains": {
+    "toolchain": {
+      "cCompilerExecutable": "/home/ijaz/Android/Sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/clang.lld",
+      "cppCompilerExecutable": "/home/ijaz/Android/Sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++.lld"
+    }
+  },
+  "cFileExtensions": [
+    "S",
+    "c"
+  ],
+  "cppFileExtensions": [
+    "cc",
+    "cpp"
+  ]
+}

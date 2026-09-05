@@ -1,0 +1,17 @@
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/third_party/breakpad/src/common/android/breakpad_getcontext.S
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/third_party/openh264/src/codec/encoder/core/arm64/intra_pred_aarch64_neon.S
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/third_party/openh264/src/codec/encoder/core/arm64/intra_pred_sad_3_opt_aarch64_neon.S
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/third_party/openh264/src/codec/encoder/core/arm64/memory_aarch64_neon.S
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/third_party/openh264/src/codec/encoder/core/arm64/pixel_aarch64_neon.S
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/third_party/openh264/src/codec/encoder/core/arm64/reconstruct_aarch64_neon.S
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/third_party/openh264/src/codec/encoder/core/arm64/svc_motion_estimation_aarch64_neon.S
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/third_party/openh264/src/codec/common/arm64/copy_mb_aarch64_neon.S
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/third_party/openh264/src/codec/common/arm64/deblocking_aarch64_neon.S
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/third_party/openh264/src/codec/common/arm64/expand_picture_aarch64_neon.S
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/third_party/openh264/src/codec/common/arm64/intra_pred_common_aarch64_neon.S
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/third_party/openh264/src/codec/common/arm64/mc_aarch64_neon.S
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/third_party/openh264/src/codec/processing/src/arm64/adaptive_quantization_aarch64_neon.S
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/third_party/openh264/src/codec/processing/src/arm64/down_sample_aarch64_neon.S
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/third_party/openh264/src/codec/processing/src/arm64/pixel_sad_aarch64_neon.S
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/third_party/openh264/src/codec/processing/src/arm64/vaa_calc_aarch64_neon.S
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/rlottie/src/vector/pixman/pixman-arma64-neon-asm.S

@@ -1,0 +1,137 @@
+package com.creanger.app.ui;
+
+import static com.creanger.app.messenger.AndroidUtilities.accelerateInterpolator;
+import static com.creanger.app.messenger.AndroidUtilities.dp;
+import static com.creanger.app.messenger.AndroidUtilities.replaceSingleTag;
+import static com.creanger.app.messenger.LocaleController.formatString;
+import static com.creanger.app.messenger.LocaleController.formatYearMonthDay;
+import static com.creanger.app.messenger.LocaleController.getString;
+
+import android.content.Context;
+import android.text.TextUtils;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import com.creanger.app.messenger.AndroidUtilities;
+import com.creanger.app.messenger.ApplicationLoader;
+import com.creanger.app.messenger.FileLog;
+import com.creanger.app.messenger.MessagesController;
+import com.creanger.app.messenger.R;
+import com.creanger.app.messenger.UserConfig;
+import com.creanger.app.messenger.UserObject;
+import com.creanger.app.messenger.browser.Browser;
+import com.creanger.app.tgnet.TLRPC;
+import com.creanger.app.ui.ActionBar.BaseFragment;
+import com.creanger.app.ui.ActionBar.BottomSheet;
+import com.creanger.app.ui.ActionBar.Theme;
+import com.creanger.app.ui.Components.BackupImageView;
+import com.creanger.app.ui.Components.LayoutHelper;
+import com.creanger.app.ui.Components.RLottieImageView;
+import com.creanger.app.ui.Components.FeatureCell;
+import com.creanger.app.ui.Stories.recorder.ButtonWithCounterView;
+
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+public class AccountFrozenAlert {
+
+    public static boolean shown;
+
+    public static boolean isSpamBot(int currentAccount, TLRPC.User user) {
+        if (user == null) {
+            return false;
+        }
+        final String username = UserObject.getPublicUsername(user);
+        if (username == null) {
+            return false;
+        }
+        try {
+            final Matcher m = Pattern.compile("t\\.me/([a-zA-Z0-9]+)/?").matcher(MessagesController.getInstance(currentAccount).freezeAppealUrl);
+            return m.find() && username.equalsIgnoreCase(m.group(1));
+        } catch (Exception e) {
+            FileLog.e(e);
+            return false;
+        }
+    }
+
+    public static void show(int currentAccount) {
+        if (shown) return;
+        if (UserConfig.selectedAccount != currentAccount) return;
+        Context context = LaunchActivity.instance;
+        if (context == null) context = ApplicationLoader.applicationContext;
+        if (context == null) return;
+        BaseFragment lastFragment = LaunchActivity.getSafeLastFragment();
+        show(context, currentAccount, lastFragment != null ? lastFragment.getResourceProvider() : null);
+    }
+
+    public static void show(Context context, int currentAccount, Theme.ResourcesProvider resourcesProvider) {
+        if (shown) return;
+
+        BottomSheet.Builder b = new BottomSheet.Builder(context, false, resourcesProvider);
+        BottomSheet[] sheet = new BottomSheet[1];
+
+        final Runnable openAppeal = () -> {
+            String url = MessagesController.getInstance(currentAccount).freezeAppealUrl;
+            if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                url = "https://" + url;
+            }
+            Browser.openUrl(context, url);
+            sheet[0].dismiss();
+        };
+
+        LinearLayout linearLayout = new LinearLayout(context);
+        linearLayout.setOrientation(LinearLayout.VERTICAL);
+        linearLayout.setPadding(dp(16), dp(20), dp(16), dp(8));
+        linearLayout.setClipChildren(false);
+        linearLayout.setClipToPadding(false);
+
+        RLottieImageView imageView = new RLottieImageView(context);
+        imageView.setAnimation(R.raw.media_forbidden, dp(115), dp(115));
+        imageView.playAnimation();
+        linearLayout.addView(imageView, LayoutHelper.createLinear(115, 115, Gravity.CENTER, 0, 0, 0, 9));
+
+        TextView textView = new TextView(context);
+        textView.setTypeface(AndroidUtilities.bold());
+        textView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 20);
+        textView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText, resourcesProvider));
+        textView.setText(getString(R.string.AccountFrozenTitle));
+        textView.setGravity(Gravity.CENTER);
+        linearLayout.addView(textView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER, 0, 0, 0, 23));
+
+        FeatureCell featureCell = new FeatureCell(context, FeatureCell.STYLE_SHEET, resourcesProvider);
+        featureCell.set(R.drawable.msg_block2, getString(R.string.AccountFrozen1Title), getString(R.string.AccountFrozen1Text));
+        linearLayout.addView(featureCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER, 0, 0, 0, 0));
+
+        featureCell = new FeatureCell(context, FeatureCell.STYLE_SHEET, resourcesProvider);
+        featureCell.set(R.drawable.menu_privacy, getString(R.string.AccountFrozen2Title), getString(R.string.AccountFrozen2Text));
+        linearLayout.addView(featureCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER, 0, 0, 0, 0));
+
+        featureCell = new FeatureCell(context, FeatureCell.STYLE_SHEET, resourcesProvider);
+        featureCell.set(R.drawable.menu_feature_hourglass, getString(R.string.AccountFrozen3Title), replaceSingleTag(formatString(R.string.AccountFrozen3Text, formatYearMonthDay(MessagesController.getInstance(currentAccount).freezeUntilDate, true)), openAppeal::run));
+        linearLayout.addView(featureCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER, 0, 0, 0, 0));
+
+        ButtonWithCounterView button = new ButtonWithCounterView(context, true, resourcesProvider);
+        button.setText(getString(R.string.AccountFrozenButtonAppeal), false);
+        button.setOnClickListener(v -> openAppeal.run());
+        linearLayout.addView(button, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48, Gravity.FILL_HORIZONTAL, 0, 13, 0, 4));
+
+        button = new ButtonWithCounterView(context, false, resourcesProvider);
+        button.setText(getString(R.string.AccountFrozenButtonUnderstood), false);
+        button.setOnClickListener(v -> sheet[0].dismiss());
+        linearLayout.addView(button, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48, Gravity.FILL_HORIZONTAL, 0, 0, 0, 0));
+
+        b.setCustomView(linearLayout);
+        sheet[0] = b.create();
+        sheet[0].useBackgroundTopPadding = false;
+
+        sheet[0].fixNavigationBar();
+        shown = true;
+        sheet[0].show();
+        sheet[0].setOnDismissListener(v -> {
+            shown = false;
+        });
+    }
+
+}

@@ -1,0 +1,8 @@
+-- ============================================================================
+-- CREANGER SUPABASE SCHEMA - MIGRATION 009: CALLS (REMOVED)
+-- ============================================================================
+-- Calls / VoIP / call signaling have been removed from the Creanger product scope.
+-- This migration is intentionally empty; the calls and call_participants tables,
+-- along with their enums, indexes, policies, and grants, were created in a
+-- previous version and are now dropped by migration 014.
+-- ============================================================================

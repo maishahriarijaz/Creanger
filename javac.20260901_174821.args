@@ -1,0 +1,13 @@
+-source
+1.8
+-target
+1.8
+-bootclasspath
+/home/ijaz/Android/Sdk/platforms/android-35/android.jar
+-cp
+TMessagesProj/build/intermediates/compile_r_class_jar/debug/generateDebugRFile/R.jar
+-d
+/tmp/manual_test
+-sourcepath
+TMessagesProj/src/main/java
+TMessagesProj/src/main/java/com/creanger/app/messenger/AndroidUtilities.java

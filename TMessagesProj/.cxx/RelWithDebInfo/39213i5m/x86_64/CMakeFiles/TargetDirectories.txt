@@ -1,0 +1,14 @@
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/x86_64/CMakeFiles/rlottie.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/x86_64/CMakeFiles/flac.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/x86_64/CMakeFiles/sqlite.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/x86_64/CMakeFiles/breakpad.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/x86_64/CMakeFiles/tgvoip.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/x86_64/CMakeFiles/openh264.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/x86_64/CMakeFiles/rnnoise.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/x86_64/CMakeFiles/tgcalls_tp.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/x86_64/CMakeFiles/tgcalls.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/x86_64/CMakeFiles/voipandroid.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/x86_64/CMakeFiles/tmessages.49.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/x86_64/CMakeFiles/cpufeatures.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/x86_64/CMakeFiles/edit_cache.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/x86_64/CMakeFiles/rebuild_cache.dir

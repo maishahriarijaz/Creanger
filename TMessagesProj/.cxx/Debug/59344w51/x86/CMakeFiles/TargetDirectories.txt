@@ -1,0 +1,14 @@
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86/CMakeFiles/rlottie.dir
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86/CMakeFiles/flac.dir
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86/CMakeFiles/sqlite.dir
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86/CMakeFiles/breakpad.dir
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86/CMakeFiles/tgvoip.dir
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86/CMakeFiles/openh264.dir
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86/CMakeFiles/rnnoise.dir
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86/CMakeFiles/tgcalls_tp.dir
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86/CMakeFiles/tgcalls.dir
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86/CMakeFiles/voipandroid.dir
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86/CMakeFiles/tmessages.49.dir
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86/CMakeFiles/cpufeatures.dir
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86/CMakeFiles/edit_cache.dir
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/x86/CMakeFiles/rebuild_cache.dir

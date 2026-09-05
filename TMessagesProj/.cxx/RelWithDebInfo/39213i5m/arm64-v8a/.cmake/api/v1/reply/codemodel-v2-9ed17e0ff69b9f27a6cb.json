@@ -1,0 +1,159 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"jsonFile" : "directory-.-RelWithDebInfo-f5ebdc15457944623624.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.6.0"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11
+					]
+				}
+			],
+			"name" : "RelWithDebInfo",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "Project",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "breakpad::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-breakpad-RelWithDebInfo-b006c9cc144cc3013b56.json",
+					"name" : "breakpad",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "cpufeatures::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-cpufeatures-RelWithDebInfo-daba9a3b8b4df49400a3.json",
+					"name" : "cpufeatures",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "flac::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-flac-RelWithDebInfo-2281cf69e6c40a63faa4.json",
+					"name" : "flac",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "openh264::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-openh264-RelWithDebInfo-3bbb7e03694208416521.json",
+					"name" : "openh264",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "rlottie::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rlottie-RelWithDebInfo-3c7683363f48a5b0b1d2.json",
+					"name" : "rlottie",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "rnnoise::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rnnoise-RelWithDebInfo-8d720ba1f402b0922ed6.json",
+					"name" : "rnnoise",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "sqlite::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-sqlite-RelWithDebInfo-89d22bb5f18e5327dca6.json",
+					"name" : "sqlite",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "tgcalls::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-tgcalls-RelWithDebInfo-87191a9a9736be64580d.json",
+					"name" : "tgcalls",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "tgcalls_tp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-tgcalls_tp-RelWithDebInfo-a7efff39773aec93c162.json",
+					"name" : "tgcalls_tp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "tgvoip::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-tgvoip-RelWithDebInfo-313ae095f6dbc6227910.json",
+					"name" : "tgvoip",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "tmessages.49::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-tmessages.49-RelWithDebInfo-ffcdca79f01bc6265c0d.json",
+					"name" : "tmessages.49",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "voipandroid::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-voipandroid-RelWithDebInfo-21fa6f34e0ac28d58b97.json",
+					"name" : "voipandroid",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/arm64-v8a",
+		"source" : "/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

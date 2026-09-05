@@ -1,0 +1,109 @@
+{
+  "buildFiles": [
+    "/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/CMakeLists.txt",
+    "/home/ijaz/Desktop/Telegram-master/TMessagesProj/jni/voip/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/home/ijaz/Android/Sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/arm64-v8a",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/home/ijaz/Android/Sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/arm64-v8a",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "breakpad::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "breakpad",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/arm64-v8a/libbreakpad.a"
+    },
+    "cpufeatures::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "cpufeatures",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/arm64-v8a/libcpufeatures.a"
+    },
+    "flac::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "flac",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/arm64-v8a/libflac.a"
+    },
+    "openh264::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "openh264",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/arm64-v8a/libopenh264.a"
+    },
+    "rlottie::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "rlottie",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/arm64-v8a/librlottie.a"
+    },
+    "rnnoise::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "rnnoise",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/arm64-v8a/librnnoise.a"
+    },
+    "sqlite::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "sqlite",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/arm64-v8a/libsqlite.a"
+    },
+    "tgcalls::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "tgcalls",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/arm64-v8a/libtgcalls.a"
+    },
+    "tgcalls_tp::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "tgcalls_tp",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/arm64-v8a/libtgcalls_tp.a"
+    },
+    "tgvoip::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "tgvoip",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/arm64-v8a/libtgvoip.a"
+    },
+    "tmessages.49::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "tmessages.49",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/build/intermediates/cxx/RelWithDebInfo/39213i5m/obj/arm64-v8a/libtmessages.49.so",
+      "runtimeFiles": []
+    },
+    "voipandroid::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "voipandroid",
+      "output": "/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/RelWithDebInfo/39213i5m/arm64-v8a/libvoipandroid.a"
+    }
+  },
+  "toolchains": {
+    "toolchain": {
+      "cCompilerExecutable": "/home/ijaz/Android/Sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/clang.lld",
+      "cppCompilerExecutable": "/home/ijaz/Android/Sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++.lld"
+    }
+  },
+  "cFileExtensions": [
+    "S",
+    "c"
+  ],
+  "cppFileExtensions": [
+    "cc",
+    "cpp"
+  ]
+}

@@ -1,0 +1,8 @@
+-sourcepath
+TMessagesProj/src/main/java
+--release
+8
+-d
+/tmp/compile_test2
+TMessagesProj/src/main/java/com/creanger/app/tgnet/TLObject.java
+TMessagesProj/src/main/java/com/creanger/app/tgnet/TLRPC.java

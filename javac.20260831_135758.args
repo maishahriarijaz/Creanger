@@ -1,0 +1,7 @@
+-cp
+/home/ijaz/Android/Sdk/platforms/android-35/android.jar
+-sourcepath
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/src/main/java
+-d
+/tmp/compile_test
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/src/main/java/com/creanger/app/ui/Components/EmojiView.java

@@ -1,0 +1,2 @@
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/jni/CMakeLists.txt
+/home/ijaz/Downloads/Telegram-master/TMessagesProj/jni/voip/CMakeLists.txt

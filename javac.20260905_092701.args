@@ -1,0 +1,12 @@
+-proc:none
+-source
+8
+-target
+8
+-sourcepath
+TMessagesProj/src/main/java
+-cp
+/home/ijaz/Android/Sdk/platforms/android-35/android.jar
+-d
+/tmp/creanger-messenger-core-20260905
+TMessagesProj/src/main/java/com/creanger/app/messenger/AndroidUtilities.java

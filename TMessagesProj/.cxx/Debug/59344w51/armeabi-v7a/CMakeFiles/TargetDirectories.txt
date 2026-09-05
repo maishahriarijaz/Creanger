@@ -1,0 +1,14 @@
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/armeabi-v7a/CMakeFiles/rlottie.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/armeabi-v7a/CMakeFiles/flac.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/armeabi-v7a/CMakeFiles/sqlite.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/armeabi-v7a/CMakeFiles/breakpad.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/armeabi-v7a/CMakeFiles/tgvoip.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/armeabi-v7a/CMakeFiles/openh264.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/armeabi-v7a/CMakeFiles/rnnoise.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/armeabi-v7a/CMakeFiles/tgcalls_tp.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/armeabi-v7a/CMakeFiles/tgcalls.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/armeabi-v7a/CMakeFiles/voipandroid.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/armeabi-v7a/CMakeFiles/tmessages.49.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/armeabi-v7a/CMakeFiles/cpufeatures.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/armeabi-v7a/CMakeFiles/edit_cache.dir
+/home/ijaz/Desktop/Telegram-master/TMessagesProj/.cxx/Debug/59344w51/armeabi-v7a/CMakeFiles/rebuild_cache.dir
