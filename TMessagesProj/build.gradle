@@ -1,0 +1,269 @@
+import org.gradle.nativeplatform.platform.internal.DefaultNativePlatform
+
+apply plugin: 'com.android.library'
+
+repositories {
+    mavenCentral()
+    google()
+}
+
+configurations {
+    compile.exclude module: 'support-v4'
+}
+
+configurations.all {
+    exclude group: 'com.google.firebase', module: 'firebase-core'
+    exclude group: 'androidx.recyclerview', module: 'recyclerview'
+}
+
+dependencies {
+    implementation 'androidx.core:core:1.16.0'
+    implementation 'androidx.palette:palette:1.0.0'
+    implementation 'androidx.exifinterface:exifinterface:1.3.6'
+    implementation 'androidx.dynamicanimation:dynamicanimation:1.0.0'
+    implementation "androidx.sharetarget:sharetarget:1.2.0"
+    implementation 'androidx.interpolator:interpolator:1.0.0'
+    implementation 'androidx.biometric:biometric:1.1.0'
+
+    implementation 'com.google.android.gms:play-services-cast-framework:21.4.0'
+    implementation "androidx.mediarouter:mediarouter:1.7.0"
+
+    implementation 'androidx.car.app:app:1.4.0'
+    implementation 'androidx.car.app:app-projected:1.4.0'
+    implementation 'org.nanohttpd:nanohttpd:2.3.1'
+
+    compileOnly 'org.checkerframework:checker-qual:2.5.2'
+    compileOnly 'org.checkerframework:checker-compat-qual:2.5.0'
+    implementation 'com.google.firebase:firebase-messaging:22.0.0'
+    implementation 'com.google.firebase:firebase-config:21.0.1'
+    implementation 'com.google.firebase:firebase-datatransport:18.1.0'
+    implementation 'com.google.firebase:firebase-appindexing:20.0.0'
+    implementation 'com.google.android.gms:play-services-maps:18.1.0'
+    implementation 'com.google.android.gms:play-services-auth:20.4.0'
+    implementation 'com.google.android.gms:play-services-vision:20.1.3'
+    implementation 'com.google.android.gms:play-services-wearable:18.0.0'
+    implementation 'com.google.android.gms:play-services-location:21.0.1'
+    implementation 'com.google.android.gms:play-services-wallet:19.1.0'
+    implementation 'com.googlecode.mp4parser:isoparser:1.0.6'
+    implementation 'com.stripe:stripe-android:2.0.2'
+    implementation 'com.google.mlkit:language-id:17.0.6'
+    implementation 'com.android.billingclient:billing:7.1.1'
+    implementation 'com.google.code.gson:gson:2.11.0'
+    implementation 'com.google.guava:guava:31.1-android'
+    implementation 'com.google.android.play:integrity:1.3.0'
+    implementation 'com.google.android.gms:play-services-safetynet:18.0.1'
+
+    implementation 'com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1'
+    implementation 'com.google.android.gms:play-services-mlkit-image-labeling:16.0.8'
+
+    implementation "androidx.credentials:credentials:1.6.0-alpha04"
+    implementation "androidx.credentials:credentials-play-services-auth:1.6.0-alpha04"
+
+    implementation "io.noties.markwon:core:4.6.2"
+    implementation "io.noties.markwon:ext-strikethrough:4.6.2"
+    implementation "io.noties.markwon:ext-tables:4.6.2"
+    implementation "io.noties.markwon:html:4.6.2"
+    implementation "io.noties.markwon:inline-parser:4.6.2"
+    implementation "io.noties.markwon:ext-latex:4.6.2"
+
+    // OkHttp for custom backend networking
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'com.squareup.okio:okio:2.10.0'
+
+//    implementation 'com.google.mlkit:translate:17.0.3'
+
+    constraints {
+        implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.0") {
+            because("kotlin-stdlib-jdk7 is now a part of kotlin-stdlib")
+        }
+        implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.0") {
+            because("kotlin-stdlib-jdk8 is now a part of kotlin-stdlib")
+        }
+    }
+    implementation 'com.google.android.recaptcha:recaptcha:18.7.1'
+
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}
+
+def isWindows = String.valueOf(DefaultNativePlatform.currentOperatingSystem.toFamilyName() == OperatingSystemFamily.WINDOWS)
+
+// Supabase PROJECT URL (GoTrue under /auth/v1, PostgREST under /rest/v1).
+// The legacy Custom Auth Server (creanger-auth workers.dev) was removed.
+def creangerAuthBaseUrl() {
+    def v = getProps("CREANGER_AUTH_BASE_URL")
+    if (v != null && v.toString().trim().length() > 0) {
+        return v.toString().trim()
+    }
+    return ""
+}
+
+def creangerSupabaseAnonKey() {
+    def v = getProps("CREANGER_SUPABASE_ANON_KEY")
+    return v == null ? "" : v.toString().trim()
+}
+android {
+    compileSdkVersion 35
+    buildToolsVersion '35.0.0'
+    ndkVersion "27.2.12479018"
+
+    sourceSets.main.jniLibs.srcDirs = ['./jni/']
+
+    externalNativeBuild {
+        cmake {
+            path 'jni/CMakeLists.txt'
+        }
+    }
+
+    lintOptions {
+        disable 'MissingTranslation'
+        disable 'ExtraTranslation'
+        disable 'BlockedPrivateApi'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+
+        coreLibraryDesugaringEnabled false
+    }
+
+    tasks.withType(JavaCompile) {
+        options.incremental = false
+        options.compilerArgs += ["-Xmaxerrs", "50000"]
+    }
+
+
+    defaultConfig {
+        minSdkVersion 21
+        targetSdkVersion 35
+
+        // Google Sign-In server client ID (OAuth "Web application" client of
+        // the Creanger Firebase/Cloud project registered for com.creanger.app).
+        // Supplied via GOOGLE_WEB_CLIENT_ID in gradle.properties; empty by
+        // default — Google button reports a clear error until provided.
+        resValue "string", "default_web_client_id",
+                (project.findProperty('GOOGLE_WEB_CLIENT_ID') ?: '').toString()
+
+        vectorDrawables.generatedDensities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi']
+
+        multiDexEnabled true
+
+        externalNativeBuild {
+            cmake {
+                version '3.10.2'
+                arguments '-DANDROID_STL=c++_static', '-DANDROID_PLATFORM=android-21' //, '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            jniDebuggable true
+            minifyEnabled false
+            shrinkResources false
+            multiDexEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), '../TMessagesProj/proguard-rules.pro', '../TMessagesProj/proguard-rules-beta.pro'
+            ndk.debugSymbolLevel = 'FULL'
+            buildConfigField "String", "BUILD_VERSION_STRING", "\"" + APP_VERSION_NAME + "\""
+            buildConfigField "String", "APP_CENTER_HASH", "\"\""
+            buildConfigField "String", "BETA_URL", "\"" + getProps("BETA_PRIVATE_URL") + "\""
+            buildConfigField "boolean", "DEBUG_VERSION", "true"
+            buildConfigField "boolean", "DEBUG_PRIVATE_VERSION", "true"
+            buildConfigField "boolean", "BUNDLE", "false"
+            buildConfigField "boolean", "BUILD_HOST_IS_WINDOWS", isWindows
+            buildConfigField "boolean", "USE_CREANGER_AUTH", "true"
+            buildConfigField "String", "CREANGER_AUTH_BASE_URL", "\"" + creangerAuthBaseUrl() + "\""
+            buildConfigField "String", "CREANGER_CHAT_BASE_URL", "\"" + getProps("CREANGER_CHAT_BASE_URL") + "\""
+            buildConfigField "String", "CREANGER_SUPABASE_ANON_KEY", "\"" + creangerSupabaseAnonKey() + "\""
+            buildConfigField "int", "VERSION_NUM", "0"
+        }
+
+        standalone {
+            jniDebuggable false
+            minifyEnabled true
+            multiDexEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), '../TMessagesProj/proguard-rules.pro'
+            ndk.debugSymbolLevel = 'FULL'
+            buildConfigField "String", "BUILD_VERSION_STRING", "\"" + APP_VERSION_NAME + "\""
+            buildConfigField "String", "APP_CENTER_HASH", "\"\""
+            buildConfigField "String", "BETA_URL", "\"\""
+            buildConfigField "boolean", "DEBUG_VERSION", "false"
+            buildConfigField "boolean", "DEBUG_PRIVATE_VERSION", "false"
+            buildConfigField "boolean", "BUNDLE", "false"
+            buildConfigField "boolean", "BUILD_HOST_IS_WINDOWS", isWindows
+            buildConfigField "boolean", "USE_CREANGER_AUTH", "false"
+            buildConfigField "String", "CREANGER_AUTH_BASE_URL", "\"" + creangerAuthBaseUrl() + "\""
+            buildConfigField "String", "CREANGER_CHAT_BASE_URL", "\"" + getProps("CREANGER_CHAT_BASE_URL") + "\""
+            buildConfigField "String", "CREANGER_SUPABASE_ANON_KEY", "\"" + creangerSupabaseAnonKey() + "\""
+            buildConfigField "int", "VERSION_NUM", "6"
+        }
+
+        release {
+            jniDebuggable false
+            minifyEnabled true
+            shrinkResources false
+            multiDexEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), '../TMessagesProj/proguard-rules.pro'
+            ndk.debugSymbolLevel = 'FULL'
+            buildConfigField "String", "BUILD_VERSION_STRING", "\"" + APP_VERSION_NAME + "\""
+            buildConfigField "String", "APP_CENTER_HASH", "\"\""
+            buildConfigField "String", "BETA_URL", "\"\""
+            buildConfigField "boolean", "DEBUG_VERSION", "false"
+            buildConfigField "boolean", "DEBUG_PRIVATE_VERSION", "false"
+            buildConfigField "boolean", "BUNDLE", "false"
+            buildConfigField "boolean", "BUILD_HOST_IS_WINDOWS", isWindows
+            buildConfigField "boolean", "USE_CREANGER_AUTH", "false"
+            buildConfigField "String", "CREANGER_AUTH_BASE_URL", "\"" + creangerAuthBaseUrl() + "\""
+            buildConfigField "String", "CREANGER_CHAT_BASE_URL", "\"" + getProps("CREANGER_CHAT_BASE_URL") + "\""
+            buildConfigField "String", "CREANGER_SUPABASE_ANON_KEY", "\"" + creangerSupabaseAnonKey() + "\""
+            buildConfigField "int", "VERSION_NUM", "7"
+        }
+    }
+
+    namespace 'com.creanger.app.messenger'
+}
+
+
+// Standalone E2E task: runs CreangerRealServerE2ETest against a LIVE
+// Creanger Auth Server. The test itself skips (JUnit Assume) when the
+// server is unreachable, so this task stays green in CI without a server.
+// Drive it via scripts/run-creanger-e2e.sh, which manages the server
+// lifecycle and surface the exact same invocation.
+tasks.register('testCreangerE2E', Test) {
+    group = 'verification'
+    description = 'Runs CreangerRealServerE2ETest against a live Creanger Auth Server.'
+    // Reuse the debug unit-test variant's compiled classes and classpath so
+    // this task sees the same main sourceset, test sourceset, and test deps
+    // as the regular `testDebugUnitTest` run. Resolved lazily because the
+    // Android unit-test task is registered by AGP after configuration.
+    def unitTest = tasks.named('testDebugUnitTest')
+    testClassesDirs = files { unitTest.get().testClassesDirs }
+    classpath = files { unitTest.get().classpath }
+    filter {
+        includeTestsMatching 'com.creanger.app.messenger.creanger.CreangerRealServerE2ETest'
+    }
+    testLogging {
+        events 'passed', 'failed', 'skipped'
+        exceptionFormat 'full'
+    }
+    dependsOn 'compileDebugUnitTestJavaWithJavac'
+}
+
+
+def getProps(String propName) {
+    def propsFile = rootProject.file('local.properties')
+    if (propsFile.exists()) {
+        def props = new Properties()
+        props.load(new FileInputStream(propsFile))
+        def v = props[propName]
+        return v != null ? v : ""
+    } else {
+        return "";
+    }
+}
+// google-services plugin removed: see Creanger Firebase migration note in README section of this change.
