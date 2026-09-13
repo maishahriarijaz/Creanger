@@ -149,6 +149,12 @@ android {
         resValue "string", "default_web_client_id",
                 (project.findProperty('GOOGLE_WEB_CLIENT_ID') ?: '').toString()
 
+        // P0-3: the same OAuth web client id, injected as a BuildConfig field so
+        // CreangerLoginActivity.resolveWebClientId() reads it from BuildConfig
+        // (env > Gradle property > local.properties). Empty when not provided.
+        buildConfigField "String", "GOOGLE_WEB_CLIENT_ID",
+                "\"" + (project.findProperty('GOOGLE_WEB_CLIENT_ID') ?: '').toString() + "\""
+
         vectorDrawables.generatedDensities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi']
 
         multiDexEnabled true

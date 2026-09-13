@@ -237,26 +237,47 @@ public class KeystoreTokenStore implements CreangerTokenStore {
         @Override
         public byte[] encrypt(String plaintext, byte[] iv) throws Exception {
             Cipher cipher = Cipher.getInstance(GCM_TRANSFORMATION);
-            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(), new GCMParameterSpec(128, iv));
+            // Keystore-backed keys REJECT caller-supplied nonces (keystore2:
+            // CALLER_NONCE_PROHIBITED), which made every store() throw and
+            // silently drop the session — logging the user out on every
+            // restart. So the Keystore mints the nonce: init WITHOUT params
+            // and persist the cipher's actual IV. The {@code iv} argument is
+            // ignored (kept for the Seal contract / test seam); the returned
+            // byte layout stays nonce(12) || ciphertext||tag.
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey());
+            byte[] usedIv = cipher.getIV();
             byte[] cipherBytes = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
-            byte[] out = new byte[iv.length + cipherBytes.length];
-            System.arraycopy(iv, 0, out, 0, iv.length);
-            System.arraycopy(cipherBytes, 0, out, iv.length, cipherBytes.length);
+            byte[] out = new byte[usedIv.length + cipherBytes.length];
+            System.arraycopy(usedIv, 0, out, 0, usedIv.length);
+            System.arraycopy(cipherBytes, 0, out, usedIv.length, cipherBytes.length);
             return out;
         }
 
         @Override
         public byte[] decrypt(byte[] sealed, byte[] iv) throws Exception {
+            byte[] nonceBytes = Arrays.copyOfRange(sealed, 0, iv.length);
             byte[] cipherBytes = Arrays.copyOfRange(sealed, iv.length, sealed.length);
             Cipher cipher = Cipher.getInstance(GCM_TRANSFORMATION);
-            cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), new GCMParameterSpec(128, iv));
+            cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(),
+                    new GCMParameterSpec(128, nonceBytes));
             return cipher.doFinal(cipherBytes);
         }
     }
 
     private SecretKey getOrCreateKey() throws Exception {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            return getOrCreateKeystoreKey();
+            try {
+                return getOrCreateKeystoreKey();
+            } catch (Exception keystoreFailure) {
+                // Keystore can be temporarily unavailable (keystore2 daemon
+                // down, hardware-backed key invalidated after a restore, or a
+                // corrupted keystore partition). Falling back to the per-install
+                // key keeps the session durable instead of silently discarding
+                // every future store() call — the historical failure mode that
+                // logged the user out on every restart. Same documented trade-off
+                // as the API 21-22 path: never exported or synced.
+                return getOrCreateLegacyKey();
+            }
         }
         return getOrCreateLegacyKey();
     }
