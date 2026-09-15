@@ -71,15 +71,79 @@ public final class CreangerMessageMapping {
 
     /** Parse ISO8601 timestamp to unix seconds; fallback to now */
     public int parseIso8601ToUnix(String iso) {
-        if (iso == null) {
+        if (iso == null || iso.isEmpty()) {
             return (int) (System.currentTimeMillis() / 1000);
         }
         try {
-            java.time.Instant instant = java.time.Instant.parse(iso);
-            return (int) instant.getEpochSecond();
+            // Manual ISO8601 parser — no java.time (min SDK 21).
+            // Accepts: "2026-09-15T10:30:00Z" or "2026-09-15T10:30:00.123Z"
+            //          or with timezone offset "+02:00" / "-05:30"
+            String s = iso.trim();
+            // Extract timezone offset first (before stripping fractional seconds)
+            int tzSign = 0;
+            int tzHours = 0;
+            int tzMinutes = 0;
+            {
+                int plusIdx = s.lastIndexOf('+');
+                int minusIdx = s.lastIndexOf('-');
+                int tzIdx = plusIdx > 10 ? plusIdx : (minusIdx > 10 ? minusIdx : -1);
+                if (tzIdx > 0) {
+                    String tzPart = s.substring(tzIdx);
+                    s = s.substring(0, tzIdx);
+                    // tzPart is like "+02:00" or "-05:30" or "+00"
+                    String tzNum = tzPart.substring(1);
+                    String[] tzParts = tzNum.split(":");
+                    tzHours = Integer.parseInt(tzParts[0]);
+                    tzMinutes = tzParts.length > 1 ? Integer.parseInt(tzParts[1]) : 0;
+                    tzSign = tzPart.charAt(0) == '+' ? 1 : -1;
+                } else if (s.endsWith("Z") || s.endsWith("z")) {
+                    s = s.substring(0, s.length() - 1);
+                }
+            }
+            // Strip fractional seconds if present (e.g. ".123" or ".123456")
+            int dotIdx = s.indexOf('.');
+            if (dotIdx > 0) {
+                s = s.substring(0, dotIdx);
+            }
+            // Replace T or space separator
+            int tIdx = s.indexOf('T');
+            if (tIdx < 0) tIdx = s.indexOf(' ');
+            if (tIdx < 0) {
+                return (int) (System.currentTimeMillis() / 1000);
+            }
+            String datePart = s.substring(0, tIdx);
+            String timePart = s.substring(tIdx + 1);
+            String[] dp = datePart.split("-");
+            String[] tp = timePart.split(":");
+            int year = Integer.parseInt(dp[0]);
+            int month = Integer.parseInt(dp[1]);
+            int day = Integer.parseInt(dp[2]);
+            int hour = Integer.parseInt(tp[0]);
+            int minute = Integer.parseInt(tp[1]);
+            int second = Integer.parseInt(tp[2]);
+            // Convert to epoch seconds (UTC)
+            long days = day - 1;
+            for (int y = 1970; y < year; y++) {
+                days += isLeapYear(y) ? 366 : 365;
+            }
+            int[] monthDays = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+            for (int m = 1; m < month; m++) {
+                days += monthDays[m];
+                if (m == 2 && isLeapYear(year)) days++;
+            }
+            long epoch = days * 86400L + hour * 3600L + minute * 60L + second;
+            // Adjust for timezone offset (the offset converts local to UTC)
+            if (tzSign != 0) {
+                epoch -= tzSign * (tzHours * 3600L + tzMinutes * 60L);
+            }
+            return (int) epoch;
         } catch (Exception e) {
             return (int) (System.currentTimeMillis() / 1000);
         }
+    }
+
+    private static boolean isLeapYear(int year) {
+        return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
     }
 
     /** Determine send state from Creanger status */
@@ -488,6 +552,7 @@ public final class CreangerMessageMapping {
         flags = setFlag(flags, 1, out);          // FLAG_1: out
         flags = setFlag(flags, 4, false);        // FLAG_4: mentioned
         flags = setFlag(flags, 5, false);        // FLAG_5: media_unread
+        flags = setFlag(flags, 8, true);         // FLAG_8: has_from_id (always set — from_id is populated)
         flags = setFlag(flags, 13, false);       // FLAG_13: silent
         flags = setFlag(flags, 14, false);       // FLAG_14: post
         flags = setFlag(flags, 18, false);       // FLAG_18: from_scheduled

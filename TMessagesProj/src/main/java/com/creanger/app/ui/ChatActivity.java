@@ -13476,6 +13476,9 @@ public class ChatActivity extends BaseFragment implements
             return;
         }
         final SocketMessageRealtimeTransport transport = new SocketMessageRealtimeTransport(realtimeEndpoint(chatBase));
+        // Supabase rejects the realtime handshake (401) when the user JWT is
+        // sent as `apikey`; it expects the project anon key there instead.
+        transport.setApiKey(auth.getConfig().getSupabaseAnonKey());
         creangerRealtimeClient = new MessageRealtimeClient(
                 transport,
                 new MessageRealtimeClient.AccessTokenProvider() {
@@ -13580,10 +13583,66 @@ public class ChatActivity extends BaseFragment implements
         if (creangerMessageAsync == null || creangerChatId == null || !creangerChatId.equals(chatId)) {
             return;
         }
+        // Realtime callbacks already arrive on the UI poster, but stay defensive:
+        // the repository merge is synchronous and syncCreangerMessages re-posts
+        // to UI when needed, so an insert from any thread renders instantly.
         boolean inserted = creangerMessageAsync.applyRealtime(chatId, message);
         if (inserted) {
-            syncCreangerMessages();
+            syncCreangerMessages(true);
             creangerMarkDeliveredOrRead(message);
+            // Realtime rows carry no attachment payload (020 publication); a new
+            // media bubble would render empty without the snapshot fill, so pull
+            // attachments for the fresh id and re-sync on completion.
+            if (message != null && message.isMedia()) {
+                final String freshId = message.id;
+                if (freshId != null) {
+                    java.util.ArrayList<String> ids = new java.util.ArrayList<>(1);
+                    ids.add(freshId);
+                    try {
+                        creangerMessageAsync.loadAttachments(chatId, ids, new CreangerMessageAsync.Callback<Void>() {
+                                private boolean retried;
+
+                                @Override
+                                public void onSuccess(Void result) {
+                                    syncCreangerMessages(false);
+                                }
+
+                                @Override
+                                public void onError(@Nullable CreangerApiException error, @Nullable Throwable ioError) {
+                                    // Without the attachment payload the realtime media
+                                    // bubble renders empty; one delayed retry (network
+                                    // blips and cold-start races dominate), then leave
+                                    // the placeholder for the next full sync to fill.
+                                    if (retried || isFinished || creangerMessageAsync == null
+                                            || !chatId.equals(creangerChatId)) {
+                                        return;
+                                    }
+                                    retried = true;
+                                    AndroidUtilities.runOnUIThread(this::retryLoad, 5000);
+                                }
+
+                                private void retryLoad() {
+                                    if (isFinished || creangerMessageAsync == null
+                                            || !chatId.equals(creangerChatId)) {
+                                        return;
+                                    }
+                                    creangerMessageAsync.loadAttachments(chatId, ids,
+                                            new CreangerMessageAsync.Callback<Void>() {
+                                                @Override
+                                                public void onSuccess(Void result) {
+                                                    syncCreangerMessages(false);
+                                                }
+
+                                                @Override
+                                                public void onError(@Nullable CreangerApiException error, @Nullable Throwable ioError) {
+                                                }
+                                            });
+                                }
+                            });
+                        } catch (Throwable ignore) {
+                        }
+                }
+            }
         }
     }
 
@@ -13697,7 +13756,7 @@ public class ChatActivity extends BaseFragment implements
         }
         MessageReaction optimistic = new MessageReaction(
                 uuid, creangerOwnerId, emoji, false, null, null,
-                java.time.Instant.now().toString());
+                Long.toString(System.currentTimeMillis() / 1000));
         creangerMessageAsync.applyRealtimeReaction(creangerChatId, optimistic, added);
         syncCreangerMessages();
         CreangerMessageAsync.Callback<String> cb = new CreangerMessageAsync.Callback<String>() {
@@ -14684,6 +14743,13 @@ public class ChatActivity extends BaseFragment implements
         if (creangerMessageAsync == null || creangerChatId == null) {
             return;
         }
+        // Telegram design: show the fullscreen progress while the first page
+        // loads and the list is still empty (same as messagesDidLoad path).
+        AndroidUtilities.runOnUIThread(() -> {
+            if (messages.isEmpty()) {
+                showProgressView(true);
+            }
+        });
         creangerMessageAsync.refreshMessages(creangerChatId, 30, new CreangerMessageAsync.Callback<MessagePage>() {
             @Override
             public void onSuccess(MessagePage result) {
@@ -15281,15 +15347,317 @@ public class ChatActivity extends BaseFragment implements
     }
 
     private void syncCreangerMessages() {
+        syncCreangerMessages(true);
+    }
+
+    /**
+     * Full Telegram-designed sync for Creanger chats. Mirrors the stock
+     * {@code messagesDidLoad / processNewMessages} pipeline using the same
+     * source UI (ChatMessageCell via ChatActivityAdapter, date objects,
+     * updateRowsSafe, empty/progress views, scroll + visible rows):
+     * - bridge rows are newest-first and Telegram {@code messages} is newest-first
+     *   too (index 0 = newest, rendered at the bottom by the reversed layout),
+     *   so the bridge order is kept as-is (no reverse).
+     * - date separators ({@code TYPE_DATE} objects with stable ids) are rebuilt
+     *   exactly like {@code messagesDidLoad}, so day headers render.
+     * - {@code chatAdapter.updateRowsSafe()} is mandatory (rowCount drives
+     *   getItemCount); plain notifyDataSetChanged alone renders nothing.
+     * - empty/progress views, visible rows and auto-scroll match Telegram.
+     */
+    private void syncCreangerMessages(boolean scrollIfNew) {
         if (creangerMessageAsync == null || creangerMessageAdapter == null || creangerChatId == null) {
             return;
         }
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            AndroidUtilities.runOnUIThread(() -> syncCreangerMessages(scrollIfNew));
+            return;
+        }
         final int account = currentAccount;
-        List<MessageObject> converted = creangerMessageAdapter.toMessageObjects(creangerMessageAsync.getMessages(creangerChatId), account);
+        java.util.List<CreangerMessageUiModel> rows = new java.util.ArrayList<>(creangerMessageAsync.getMessages(creangerChatId));
+        // Bridge rows are newest-first and Telegram's `messages` list is also
+        // newest-first (index 0 = newest, rendered at the bottom by the reversed
+        // layout). Do NOT reverse here: reversing put newest at the top.
+        List<MessageObject> converted = creangerMessageAdapter.toMessageObjects(rows, account);
+        // Stable ids + copy-stable-params across re-syncs so bubbles don't flicker.
+        // Pending rows flip view id sign on confirm (-X -> +X), so also index
+        // by client_message_id: otherwise the confirm looks like remove+insert
+        // instead of an in-place status flip.
+        java.util.HashMap<Integer, MessageObject> oldById = new java.util.HashMap<>();
+        java.util.HashMap<String, MessageObject> oldByClientId = new java.util.HashMap<>();
+        for (int i = 0; i < messages.size(); i++) {
+            MessageObject o = messages.get(i);
+            if (o != null && !o.isDateObject) {
+                oldById.put(o.getId(), o);
+                String cid = o.messageOwner != null && o.messageOwner.params != null
+                        ? o.messageOwner.params.get("client_message_id") : null;
+                if (cid != null && !cid.isEmpty()) {
+                    oldByClientId.put(cid, o);
+                }
+            }
+        }
+        java.util.ArrayList<MessageObject> withDates = new java.util.ArrayList<>(converted.size() + 4);
+        for (int i = 0; i < converted.size(); i++) {
+            MessageObject obj = converted.get(i);
+            if (obj == null || obj.messageOwner == null) {
+                continue;
+            }
+            MessageObject old = oldById.get(obj.getId());
+            if (old == null) {
+                String cid = obj.messageOwner.params != null
+                        ? obj.messageOwner.params.get("client_message_id") : null;
+                if (cid != null && !cid.isEmpty()) {
+                    old = oldByClientId.get(cid);
+                }
+            }
+            if (old != null) {
+                obj.copyStableParams(old);
+            } else if (obj.stableId == 0) {
+                obj.stableId = lastStableId++;
+            }
+            withDates.add(obj);
+            // Stock Telegram emits each day's header AFTER that day's block:
+            // messagesDidLoad appends the current day's header and inserts every
+            // message of that day BEFORE it, so the pill renders ABOVE its
+            // messages on the reversed layout (and the newest day's pill is not
+            // pushed below the newest message). Mirror that here: close a day's
+            // block with its header once the next message belongs to another day.
+            MessageObject next = null;
+            for (int j = i + 1; j < converted.size(); j++) {
+                MessageObject n = converted.get(j);
+                if (n != null && n.messageOwner != null) {
+                    next = n;
+                    break;
+                }
+            }
+            boolean dayEnds = next == null || !obj.dateKey.equals(next.dateKey);
+            if (dayEnds) {
+                TLRPC.Message dateMsg = new TLRPC.TL_message();
+                dateMsg.message = LocaleController.formatDateChat(obj.messageOwner.date);
+                dateMsg.id = 0;
+                java.util.Calendar calendar = java.util.Calendar.getInstance();
+                calendar.setTimeInMillis(((long) obj.messageOwner.date) * 1000);
+                calendar.set(java.util.Calendar.HOUR_OF_DAY, 0);
+                calendar.set(java.util.Calendar.MINUTE, 0);
+                calendar.set(java.util.Calendar.SECOND, 0);
+                calendar.set(java.util.Calendar.MILLISECOND, 0);
+                dateMsg.date = (int) (calendar.getTimeInMillis() / 1000);
+                MessageObject dateObj = new MessageObject(account, dateMsg, false, false);
+                dateObj.type = MessageObject.TYPE_DATE;
+                dateObj.contentType = 1;
+                dateObj.isDateObject = true;
+                dateObj.stableId = getStableIdForDateObject(obj.dateKeyInt);
+                withDates.add(dateObj);
+            }
+        }
+        boolean hadMessages = !messages.isEmpty();
+        int prevCount = messages.size();
+        java.util.ArrayList<MessageObject> oldMessages = new java.util.ArrayList<>(messages);
         messages.clear();
-        messages.addAll(converted);
+        messages.addAll(withDates);
+        groupedMessagesMap.clear();
+        boolean grew = withDates.size() > prevCount;
+        if (grew && chatListItemAnimator != null) {
+            chatListItemAnimator.setShouldAnimateEnterFromBottom(true);
+        }
         if (chatAdapter != null) {
-            chatAdapter.notifyDataSetChanged(true);
+            if (chatAdapter.isFrozen) {
+                chatAdapter.notifyDataSetChanged(true);
+            } else {
+                int startRowBefore = chatAdapter.messagesStartRow;
+                chatAdapter.updateRowsSafe();
+                int startRowAfter = chatAdapter.messagesStartRow;
+                if (startRowBefore == startRowAfter
+                        && chatAdapter.messagesEndRow - startRowAfter == withDates.size()
+                        && syncCreangerDispatchAnimated(oldMessages, withDates, startRowAfter)) {
+                    // Granular insert/remove/change notifications dispatched:
+                    // the stock item animator plays send/delete/edit transitions.
+                    // (updateRowsSafe already full-refreshed when row structure
+                    // changed; the else branch below only covers the gap.)
+                } else {
+                    chatAdapter.notifyDataSetChanged(true);
+                }
+            }
+        }
+        showProgressView(false);
+        if (chatListView != null && emptyViewContainer != null) {
+            if (messages.isEmpty()) {
+                chatListView.setEmptyView(emptyViewContainer);
+            } else {
+                chatListView.setEmptyView(null);
+            }
+        }
+        updateVisibleRows();
+        if (scrollIfNew && chatListView != null && chatLayoutManager != null && chatAdapter != null && !withDates.isEmpty()) {
+            boolean newestIsOut = false;
+            for (int i = 0; i < withDates.size(); i++) {
+                MessageObject o = withDates.get(i);
+                if (o != null && !o.isDateObject) {
+                    newestIsOut = o.isOut();
+                    break;
+                }
+            }
+            if (grew && (newestIsOut || !hadMessages || isAtCreangerBottom())) {
+                // Newest message lives at messages index 0 = adapter position
+                // messagesStartRow (bottom of the reversed layout). bottom=true
+                // anchors that item's END edge at (viewport end - offset), so
+                // offset 0 pins the new message flush to the bottom edge — the
+                // same anchor stock moveScrollToLastMessage() uses for the
+                // reversed list. A negative offset would push the message
+                // BELOW the screen and visually jump the chat to older rows.
+                chatLayoutManager.scrollToPositionWithOffset(chatAdapter.messagesStartRow, 0, true);
+            }
+        }
+    }
+
+    /**
+     * Dispatches granular adapter updates (insert/remove/change) for a Creanger
+     * re-sync so the stock RecyclerView item animator plays send/delete/edit
+     * transitions. The previous unconditional clear() + notifyDataSetChanged()
+     * suppressed every animation. Positions are offset by the adapter's
+     * messagesStartRow; call only when the row structure is stable. Returns
+     * false when nothing was dispatched (caller falls back to full refresh).
+     */
+    private boolean syncCreangerDispatchAnimated(java.util.List<MessageObject> oldMessages,
+            java.util.List<MessageObject> newMessages, int startRow) {
+        try {
+            if (chatAdapter == null || oldMessages == null || newMessages == null) {
+                return false;
+            }
+            androidx.recyclerview.widget.DiffUtil.DiffResult result =
+                    androidx.recyclerview.widget.DiffUtil.calculateDiff(
+                            new androidx.recyclerview.widget.DiffUtil.Callback() {
+                                @Override
+                                public int getOldListSize() {
+                                    return oldMessages.size();
+                                }
+
+                                @Override
+                                public int getNewListSize() {
+                                    return newMessages.size();
+                                }
+
+                                @Override
+                                public boolean areItemsTheSame(int oldPos, int newPos) {
+                                    return creangerIdentityKey(oldMessages.get(oldPos))
+                                            .equals(creangerIdentityKey(newMessages.get(newPos)));
+                                }
+
+                                @Override
+                                public boolean areContentsTheSame(int oldPos, int newPos) {
+                                    return creangerContentKey(oldMessages.get(oldPos))
+                                            .equals(creangerContentKey(newMessages.get(newPos)));
+                                }
+                            }, false);
+            final int offset = startRow;
+            result.dispatchUpdatesTo(new androidx.recyclerview.widget.ListUpdateCallback() {
+                @Override
+                public void onInserted(int position, int count) {
+                    chatAdapter.notifyItemRangeInserted(offset + position, count);
+                }
+
+                @Override
+                public void onRemoved(int position, int count) {
+                    chatAdapter.notifyItemRangeRemoved(offset + position, count);
+                }
+
+                @Override
+                public void onMoved(int fromPosition, int toPosition) {
+                    chatAdapter.notifyItemMoved(offset + fromPosition, offset + toPosition);
+                }
+
+                @Override
+                public void onChanged(int position, int count, Object payload) {
+                    chatAdapter.notifyItemRangeChanged(offset + position, count, payload);
+                }
+            });
+            return true;
+        } catch (Throwable ignore) {
+            return false;
+        }
+    }
+
+    /** Stable identity across re-syncs: date headers by day, messages by
+     * client_message_id (survives the pending -X -> confirmed +X id flip),
+     * then Creanger UUID, then view id. */
+    private static String creangerIdentityKey(MessageObject o) {
+        if (o == null) {
+            return "null";
+        }
+        if (o.isDateObject) {
+            return "date:" + o.stableId;
+        }
+        if (o.messageOwner != null && o.messageOwner.params != null) {
+            String cid = o.messageOwner.params.get("client_message_id");
+            if (cid != null && !cid.isEmpty()) {
+                return "cid:" + cid;
+            }
+            String uuid = o.messageOwner.params.get("creanger_uuid");
+            if (uuid != null && !uuid.isEmpty()) {
+                return "uuid:" + uuid;
+            }
+        }
+        return "id:" + o.getId();
+    }
+
+    /** Visual-content signature: any difference rebinds that bubble only. */
+    private static String creangerContentKey(MessageObject o) {
+        if (o == null) {
+            return "null";
+        }
+        if (o.isDateObject) {
+            String t = o.messageOwner != null ? o.messageOwner.message : "";
+            return "date:" + (t != null ? t : "");
+        }
+        TLRPC.Message m = o.messageOwner;
+        if (m == null) {
+            return "nullowner";
+        }
+        StringBuilder sb = new StringBuilder(64);
+        sb.append(m.message).append('|').append(m.date).append('|').append(m.out).append('|')
+                .append(m.send_state).append('|').append(m.unread).append('|').append(m.edit_date).append('|')
+                .append(m.views).append('|');
+        // Media identity, not just the media class: an attachment fill or a
+        // photo-to-photo edit swaps same-class media for new payloads, and the
+        // bubble must rebind or it renders stale/empty.
+        if (m.media instanceof TLRPC.TL_messageMediaPhoto
+                && ((TLRPC.TL_messageMediaPhoto) m.media).photo != null) {
+            sb.append("photo:").append(((TLRPC.TL_messageMediaPhoto) m.media).photo.id).append('|');
+        } else if (m.media instanceof TLRPC.TL_messageMediaDocument
+                && ((TLRPC.TL_messageMediaDocument) m.media).document != null) {
+            sb.append("doc:").append(((TLRPC.TL_messageMediaDocument) m.media).document.id).append('|');
+        } else {
+            sb.append(m.media != null ? m.media.getClass().getSimpleName() : "-").append('|');
+        }
+        sb.append(m.reply_to != null).append('|');
+        if (m.reactions != null && m.reactions.results != null) {
+            sb.append(m.reactions.results.size());
+            for (int i = 0; i < m.reactions.results.size(); i++) {
+                TLRPC.ReactionCount r = m.reactions.results.get(i);
+                sb.append(',').append(r == null ? 0 : r.count);
+            }
+        } else {
+            sb.append(0);
+        }
+        return sb.toString();
+    }
+
+    /** True when the chat list is already pinned to the newest (bottom) edge.
+     * The chat list uses a reversed layout (position 0 at the bottom), so the
+     * bottom edge means the FIRST visible adapter position is near the message
+     * start row — not near the total item count (that's the top). */
+    private boolean isAtCreangerBottom() {
+        if (chatListView == null || chatLayoutManager == null || chatAdapter == null) {
+            return true;
+        }
+        try {
+            int first = chatLayoutManager.findFirstVisibleItemPosition();
+            if (first == RecyclerView.NO_POSITION) {
+                return true;
+            }
+            int start = chatAdapter.messagesStartRow >= 0 ? chatAdapter.messagesStartRow : 0;
+            return first <= start + 3;
+        } catch (Throwable ignore) {
+            return true;
         }
     }
 
@@ -30755,6 +31123,10 @@ private ArrayList<MessageObject> notPushedSponsoredMessages;
             // Re-resolve from cache (covers relogin/refresh); the resolved
             // title is never blanked once known.
             refreshCreangerHeaderTitle();
+            // Initial page may have landed before createView built the adapter
+            // (rowCount stayed 0); re-sync now that views exist so history is
+            // visible instantly without waiting for the next realtime frame.
+            syncCreangerMessages(false);
         }
         checkRaiseSensors();
         if (chatAttachAlert != null) {

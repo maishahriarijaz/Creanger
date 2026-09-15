@@ -694,9 +694,12 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
         items.add(SettingCell.Factory.of(5, IconBackgroundColors.RED.top, IconBackgroundColors.RED.bottom, R.drawable.settings_sounds, getString(R.string.SettingsNotifications), getString(R.string.SettingsNotificationsInfo)));
         // Creanger: hide Telegram MTProto Data/Network usage + Proxy/DC settings (id 6) and
         // Telegram session/device management (id 8). Supabase realtime transport is unaffected.
+        // Local cache management (id 24) stays: CacheControlActivity is fully local.
         if (!BuildConfig.USE_CREANGER_AUTH) {
             items.add(SettingCell.Factory.of(6, IconBackgroundColors.BLUE_DEEP.top, IconBackgroundColors.BLUE_DEEP.bottom, R.drawable.settings_data, getString(R.string.SettingsData), getString(R.string.SettingsDataInfo)));
             items.add(SettingCell.Factory.of(8, IconBackgroundColors.CYAN.top, IconBackgroundColors.CYAN.bottom, R.drawable.settings_devices, getString(R.string.SettingsDevices), getString(R.string.SettingsDevicesInfo)));
+        } else {
+            items.add(SettingCell.Factory.of(24, IconBackgroundColors.BLUE_DEEP.top, IconBackgroundColors.BLUE_DEEP.bottom, R.drawable.settings_data, getString(R.string.StorageUsage)));
         }
         items.add(SettingCell.Factory.of(9, IconBackgroundColors.ORANGE_DEEP.top, IconBackgroundColors.ORANGE_DEEP.bottom, R.drawable.settings_power, getString(R.string.SettingsPowerSaving), getString(R.string.SettingsPowerSavingInfo)));
         items.add(SettingCell.Factory.of(10, IconBackgroundColors.PURPLE.top, IconBackgroundColors.PURPLE.bottom, R.drawable.settings_language, getString(R.string.SettingsLanguage), LocaleController.getCurrentLanguageName()));
@@ -877,6 +880,10 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
                 // Creanger: Telegram session/device management hidden.
                 if (BuildConfig.USE_CREANGER_AUTH) break;
                 presentSettingFragment(new SessionsActivity(0));
+                break;
+            case 24:
+                // Creanger: local storage usage / clear cache (no MTProto dependency).
+                presentSettingFragment(new CacheControlActivity());
                 break;
             case 9:
                 presentSettingFragment(new LiteModeSettingsActivity());

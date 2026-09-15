@@ -74,6 +74,10 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import com.creanger.app.messenger.creanger.model.ChatModels.CreangerChat;
+import com.creanger.app.ui.Cells.CreangerDialogCell;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
@@ -89,6 +93,7 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
     public final static int VIEW_TYPE_INVITE_CONTACT_CELL = 8;
     public final static int VIEW_TYPE_PUBLIC_POST = 9;
     public final static int VIEW_TYPE_EMPTY_RESULT = 10;
+    public final static int VIEW_TYPE_CREANGER_CHAT = 11;
 
     public static enum Filter {
         All(0, R.string.SearchMessagesFilterAll, R.string.SearchMessagesFilterAllFrom),
@@ -119,6 +124,18 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
     private int searchHashtagRequest = -1;
     private Runnable searchHashtagRunnable;
     private ArrayList<Object> searchResult = new ArrayList<>();
+    // Creanger chats live outside the MTProto tables that localSearch reads,
+    // so they are filtered in-memory from the cached list (same source the
+    // main dialogs list renders via DialogsAdapter.setCreangerChats).
+    private List<CreangerChat> creangerSearchSource = new ArrayList<>();
+    private Map<String, String[]> creangerSearchPeers = new HashMap<>();
+
+    /** Cached Creanger chats (plus resolved direct-peer display data) used to
+     * include Creanger matches in chat-list search results. */
+    public void setCreangerSearchChats(List<CreangerChat> chats, Map<String, String[]> peers) {
+        creangerSearchSource = chats != null ? new ArrayList<>(chats) : new ArrayList<>();
+        creangerSearchPeers = peers != null ? new HashMap<>(peers) : new HashMap<>();
+    }
     public int publicPostsTotalCount;
     public int publicPostsLastRate;
     public ArrayList<MessageObject> publicPosts = new ArrayList<>();
@@ -960,6 +977,7 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
             ArrayList<ContactsController.Contact> contacts = new ArrayList<>();
 
             MessagesStorage.getInstance(currentAccount).localSearch(dialogsType, q, resultArray, resultArrayNames, encUsers, filterDialogIds, -1);
+            appendCreangerMatches(q, resultArray, resultArrayNames);
             updateSearchResults(resultArray, resultArrayNames, encUsers, contacts, searchId);
             FiltersView.fillTipDates(q, localTipDates);
             localTipArchive = false;
@@ -974,6 +992,44 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
         });
     }
 
+
+    /** In-memory substring match over cached Creanger chats (peer display,
+     * username, title). Runs on the storage queue alongside localSearch. */
+    private void appendCreangerMatches(String q, ArrayList<Object> resultArray, ArrayList<CharSequence> resultArrayNames) {
+        try {
+            if (creangerSearchSource == null || creangerSearchSource.isEmpty() || q == null || q.isEmpty()) {
+                return;
+            }
+            for (CreangerChat chat : creangerSearchSource) {
+                if (chat == null || chat.id == null) {
+                    continue;
+                }
+                String[] peer = creangerSearchPeers != null ? creangerSearchPeers.get(chat.id) : null;
+                String display = peer != null && peer.length > 0 ? peer[0] : null;
+                String username = peer != null && peer.length > 1 ? peer[1] : null;
+                boolean hit = containsLower(display, q) || containsLower(username, q)
+                        || containsLower(chat.title, q) || containsLower(chat.username, q);
+                if (!hit) {
+                    continue;
+                }
+                String name = !isEmptyStr(display) ? display
+                        : (!isEmptyStr(chat.title) ? chat.title
+                        : (!isEmptyStr(username) ? "@" + username
+                        : (!isEmptyStr(chat.username) ? "@" + chat.username : chat.id)));
+                resultArray.add(chat);
+                resultArrayNames.add(name);
+            }
+        } catch (Throwable ignore) {
+        }
+    }
+
+    private static boolean containsLower(String haystack, String needleLower) {
+        return haystack != null && haystack.toLowerCase().contains(needleLower);
+    }
+
+    private static boolean isEmptyStr(String s) {
+        return s == null || s.trim().isEmpty() || "null".equals(s.trim());
+    }
 
     private void updateSearchResults(final ArrayList<Object> result, final ArrayList<CharSequence> names, final ArrayList<TLRPC.User> encUsers,  final ArrayList<ContactsController.Contact> contacts, final int searchId) {
         AndroidUtilities.runOnUIThread(() -> {
@@ -1034,7 +1090,7 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
                     }
                 }
 
-                if (recentSearchAvailable() && !(obj instanceof TLRPC.EncryptedChat)) {
+                if (recentSearchAvailable() && !(obj instanceof TLRPC.EncryptedChat) && !(obj instanceof CreangerChat)) {
                     boolean foundInRecent = false;
                     if (delegate != null && delegate.getSearchForumDialogId() == dialogId) {
                         foundInRecent = true;
@@ -1691,6 +1747,9 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
                 });
                 messagesEmptyLayout.setQuery(lastMessagesSearchString);
                 break;
+            case VIEW_TYPE_CREANGER_CHAT:
+                view = new CreangerDialogCell(mContext);
+                break;
             case VIEW_TYPE_ADD_BY_PHONE:
             default:
                 view = new TextCell(mContext, 16, false);
@@ -1713,6 +1772,16 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
     @Override
     public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
         switch (holder.getItemViewType()) {
+            case VIEW_TYPE_CREANGER_CHAT: {
+                CreangerDialogCell cell = (CreangerDialogCell) holder.itemView;
+                Object obj = getItem(position);
+                if (obj instanceof CreangerChat) {
+                    CreangerChat chat = (CreangerChat) obj;
+                    String[] peer = creangerSearchPeers != null ? creangerSearchPeers.get(chat.id) : null;
+                    cell.bind(chat, peer != null ? peer[0] : null, peer != null && peer.length > 1 ? peer[1] : null);
+                }
+                break;
+            }
             case VIEW_TYPE_PROFILE_CELL: {
                 ProfileSearchCell cell = (ProfileSearchCell) holder.itemView;
                 cell.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
@@ -2259,6 +2328,9 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
         int localMessagesCount = (searchForumResultMessages.isEmpty() ? 0 : searchForumResultMessages.size() + 1);
 
         if (i >= 0 && i < localCount) {
+            if (searchResult.get(i) instanceof CreangerChat) {
+                return VIEW_TYPE_CREANGER_CHAT;
+            }
             return VIEW_TYPE_PROFILE_CELL;
         }
         i -= localCount;

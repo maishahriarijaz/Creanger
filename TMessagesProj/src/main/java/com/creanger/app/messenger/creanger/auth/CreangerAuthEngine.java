@@ -243,6 +243,45 @@ public final class CreangerAuthEngine {
         return api.getProfile(requireAccessToken(), userId);
     }
 
+    /**
+     * Reads the caller's own full profile row (bio + birthday) for the self
+     * Profile screen. Blocking; must run off the main thread (UI goes through
+     * a background executor).
+     */
+    @Nullable
+    public SupabaseAuthClient.ProfileRow getOwnProfileDetail()
+            throws IOException, CreangerApiException {
+        AuthSession current = this.session;
+        if (current == null || current.user == null || current.user.id == null || current.user.id.isEmpty()) {
+            throw new CreangerApiException(0, new ApiError(
+                    ApiError.MISSING_TOKEN, "no active session", null, 0));
+        }
+        return api.getProfileDetail(requireAccessToken(), current.user.id);
+    }
+
+    /** Updates the caller's own bio. Blocking; must run off the main thread. */
+    public void updateOwnBio(String bio) throws IOException, CreangerApiException {
+        AuthSession current = this.session;
+        if (current == null || current.user == null || current.user.id == null || current.user.id.isEmpty()) {
+            throw new CreangerApiException(0, new ApiError(
+                    ApiError.MISSING_TOKEN, "no active session", null, 0));
+        }
+        api.updateOwnBio(requireAccessToken(), current.user.id, bio);
+    }
+
+    /**
+     * Updates the caller's own birthday as ISO yyyy-MM-dd, or null to clear.
+     * Blocking; must run off the main thread. Requires migration 039.
+     */
+    public void updateOwnBirthday(@Nullable String birthdayIso) throws IOException, CreangerApiException {
+        AuthSession current = this.session;
+        if (current == null || current.user == null || current.user.id == null || current.user.id.isEmpty()) {
+            throw new CreangerApiException(0, new ApiError(
+                    ApiError.MISSING_TOKEN, "no active session", null, 0));
+        }
+        api.updateOwnBirthday(requireAccessToken(), current.user.id, birthdayIso);
+    }
+
     // ---- forgot / reset password --------------------------------------------------
 
     /** Sends the recovery OTP email. Always succeeds generically (no leak). */

@@ -1013,13 +1013,18 @@ public final class CreangerChatBridge {
                     repository.getReactionSummaries(chatId, m.id)));
         }
         // Preserve any UI-visible pending rows not yet confirmed server-side.
+        // getMessages() is newest-first, so collect the still-pending block and
+        // prepend it in ONE reverse pass: add(0, ...) per row would flip the
+        // block's relative order and stack rapid sends oldest-first until the
+        // next full reload re-sorted them.
+        java.util.ArrayList<CreangerMessageUiModel> pendings = new java.util.ArrayList<>();
         for (CreangerMessageUiModel existing : getMessages(chatId)) {
-            if (existing.isLocal) {
-                boolean stillPending = !containsClientId(rows, existing.clientMessageId);
-                if (stillPending) {
-                    rows.add(0, existing);
-                }
+            if (existing.isLocal && !containsClientId(rows, existing.clientMessageId)) {
+                pendings.add(existing);
             }
+        }
+        for (int i = pendings.size() - 1; i >= 0; i--) {
+            rows.add(0, pendings.get(i));
         }
         chatMessages.put(chatId, rows);
     }

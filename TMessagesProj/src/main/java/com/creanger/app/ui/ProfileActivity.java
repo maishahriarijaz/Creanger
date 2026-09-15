@@ -129,6 +129,10 @@ import com.creanger.app.messenger.AuthTokensHelper;
 import com.creanger.app.messenger.BillingController;
 import com.creanger.app.messenger.BirthdayController;
 import com.creanger.app.messenger.BuildConfig;
+import com.creanger.app.messenger.creanger.CreangerAuth;
+import com.creanger.app.messenger.creanger.api.SupabaseAuthClient;
+import com.creanger.app.messenger.creanger.model.AuthModels;
+import com.creanger.app.messenger.creanger.ui.CreangerLoginFlowHelper;
 import com.creanger.app.messenger.BuildVars;
 import com.creanger.app.messenger.ChatObject;
 import com.creanger.app.messenger.ChatThemeController;
@@ -302,8 +306,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
-import java.time.LocalDate;
-import java.time.Period;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -448,6 +450,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
     private boolean isTopic;
     private boolean openSimilar;
     public boolean myProfile;
+    private boolean creangerProfileLoading;
     public boolean openCommonChats;
     public int initialStoryAlbum;
 
@@ -619,6 +622,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
     private int infoHeaderRowEmpty;
     private int infoEndRowEmpty;
     private int phoneRow;
+    private int creangerEmailRow;
     private int noteRow;
     private int locationRow;
     private int userInfoRow;
@@ -2102,6 +2106,11 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 getMediaDataController().checkFeaturedStickers();
                 getMessagesController().loadSuggestedFilters();
                 getMessagesController().loadUserInfo(getUserConfig().getCurrentUser(), true, classGuid);
+            }
+            if (BuildConfig.USE_CREANGER_AUTH && myProfile && userId == getUserConfig().getClientUserId() && userInfo == null) {
+                // Creanger: MTProto full-user never loads; fetch bio + birthday
+                // from the profiles table instead.
+                loadCreangerProfileDetail();
             }
             actionBarAnimationColorFrom = arguments.getInt("actionBarColor", 0);
         } else if (chatId != 0) {
@@ -4293,6 +4302,16 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 openAddMember();
             } else if (position == usernameRow) {
                 processOnClickOrPress(position, view, x, y);
+            } else if (position == userInfoRow && BuildConfig.USE_CREANGER_AUTH && myProfile) {
+                // Creanger: bio editor (UserInfoActivity is MTProto-only).
+                presentFragment(new ChangeBioActivity());
+            } else if (position == creangerEmailRow) {
+                // Creanger: tap copies the account email.
+                String email = getCreangerSelfEmail();
+                if (!TextUtils.isEmpty(email)) {
+                    AndroidUtilities.addToClipboard(email);
+                    BulletinFactory.of(this).createCopyBulletin(LocaleController.getString(R.string.EmailCopied), resourcesProvider).show();
+                }
             } else if (position == linkedCommunityRow) {
                 if (currentChat != null) {
                     showDialog(new CommunitySheet(this, currentChat.linked_community_id));
@@ -4389,7 +4408,12 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
             } else if (position == setUsernameRow) {
                 presentFragment(new ChangeUsernameActivity());
             } else if (position == bioRow) {
-                presentFragment(new UserInfoActivity());
+                if (BuildConfig.USE_CREANGER_AUTH && userId == getUserConfig().getClientUserId()) {
+                    // Creanger: bio editor (UserInfoActivity is MTProto-only).
+                    presentFragment(new ChangeBioActivity());
+                } else {
+                    presentFragment(new UserInfoActivity());
+                }
             } else if (position == numberRow) {
                 presentFragment(new ActionIntroActivity(ActionIntroActivity.ACTION_TYPE_CHANGE_PHONE_NUMBER));
             } else if (position == setAvatarRow) {
@@ -4424,6 +4448,11 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 args.putLong("chat_id", userInfo.personal_channel_id);
                 presentFragment(new ChatActivity(args));
             } else if (position == birthdayRow) {
+                if (BuildConfig.USE_CREANGER_AUTH && myProfile && userId == getUserConfig().getClientUserId()) {
+                    // Creanger: birthday editor (UserInfoActivity is MTProto-only).
+                    editCreangerBirthday();
+                    return;
+                }
                 if (birthdayEffect != null && birthdayEffect.start()) {
                     return;
                 }
@@ -9946,6 +9975,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         infoHeaderRowEmpty = -1;
         infoEndRowEmpty = -1;
         phoneRow = -1;
+        creangerEmailRow = -1;
         noteRow = -1;
         userInfoRow = -1;
         locationRow = -1;
@@ -10025,6 +10055,13 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
 
         if (userId != 0) {
             TLRPC.User user = getMessagesController().getUser(userId);
+            if (user == null && BuildConfig.USE_CREANGER_AUTH && myProfile && userId == getUserConfig().getClientUserId()) {
+                // Creanger: the synthetic self user may be missing from the
+                // in-memory users map (e.g. stale pre-username cache); fall
+                // back to the persisted UserConfig copy so username/email rows
+                // still resolve.
+                user = getUserConfig().getCurrentUser();
+            }
             if (userInfo != null && userInfo.saved_music != null && (imageUpdater == null || myProfile)) {
                 hasMusic = true;
             }
@@ -10042,10 +10079,15 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                     setAvatarRow = rowCount++;
                     setAvatarSectionRow = rowCount++;
                 }
-                numberSectionRow = rowCount++;
-                numberRow = rowCount++;
-                setUsernameRow = rowCount++;
-                bioRow = rowCount++;
+                if (BuildConfig.USE_CREANGER_AUTH) {
+                    setUsernameRow = rowCount++;
+                    bioRow = rowCount++;
+                } else {
+                    numberSectionRow = rowCount++;
+                    numberRow = rowCount++;
+                    setUsernameRow = rowCount++;
+                    bioRow = rowCount++;
+                }
 
                 settingsSectionRow = rowCount++;
 
@@ -10099,6 +10141,11 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 versionRow = rowCount++;
             } else {
                 String username = UserObject.getPublicUsername(user);
+                if (TextUtils.isEmpty(username) && BuildConfig.USE_CREANGER_AUTH && myProfile) {
+                    // Creanger: fall back to the auth session (stored synthetic
+                    // users may predate the username backfill).
+                    username = getCreangerSelfUsername();
+                }
                 boolean hasInfo = userInfo != null && !TextUtils.isEmpty(userInfo.about) || user != null && !TextUtils.isEmpty(username);
                 boolean hasPhone = user != null && (!TextUtils.isEmpty(user.phone) || !TextUtils.isEmpty(vcardPhone));
 
@@ -10115,22 +10162,36 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                     }
                 }
                 infoStartRow = rowCount;
-                if (!isBot && (hasPhone || !hasInfo)) {
+                if (!isBot && (hasPhone || !hasInfo) && !(BuildConfig.USE_CREANGER_AUTH && myProfile)) {
                     phoneRow = rowCount++;
                 }
                 if (userInfo != null && !TextUtils.isEmpty(userInfo.about)) {
+                    userInfoRow = rowCount++;
+                } else if (BuildConfig.USE_CREANGER_AUTH && myProfile) {
+                    // Creanger: placeholder so bio stays reachable while empty.
                     userInfoRow = rowCount++;
                 }
                 if (user != null && username != null) {
                     usernameRow = rowCount++;
                 }
+                if (BuildConfig.USE_CREANGER_AUTH && myProfile && !TextUtils.isEmpty(getCreangerSelfEmail())) {
+                    // Creanger: phone-number row is hidden (no phone auth), so
+                    // show the account email instead.
+                    creangerEmailRow = rowCount++;
+                }
                 if (userInfo != null) {
                     if (userInfo.birthday != null) {
+                        birthdayRow = rowCount++;
+                    } else if (BuildConfig.USE_CREANGER_AUTH && myProfile) {
+                        // Creanger: placeholder so birthday stays reachable while unset.
                         birthdayRow = rowCount++;
                     }
                     if (userInfo.note != null) {
                         noteRow = rowCount++;
                     }
+                } else if (BuildConfig.USE_CREANGER_AUTH && myProfile) {
+                    // Creanger: placeholder so birthday stays reachable while unset.
+                    birthdayRow = rowCount++;
                 }
                 if (actionsView == null && userId != getUserConfig().getClientUserId()) {
                     notificationsRow = rowCount++;
@@ -12703,10 +12764,14 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                     boolean containsGift = false;
                     if (position == birthdayRow) {
                         TLRPC.UserFull userFull = getMessagesController().getUserFull(userId);
+                        if (userFull == null) {
+                            // Creanger: synthetic full-user held on the fragment.
+                            userFull = userInfo;
+                        }
                         if (userFull != null && userFull.birthday != null) {
                             final boolean today = BirthdayController.isToday(userFull);
                             final boolean withYear = (userFull.birthday.flags & 1) != 0;
-                            final int age = withYear ? Period.between(LocalDate.of(userFull.birthday.year, userFull.birthday.month, userFull.birthday.day), LocalDate.now()).getYears() : -1;
+                            final int age = withYear ? birthdayAgeInYears(userFull.birthday) : -1;
 
                             String text = UserInfoActivity.birthdayString(userFull.birthday);
 
@@ -12727,6 +12792,13 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                             );
 
                             containsGift = !myProfile && today && !getMessagesController().premiumPurchaseBlocked();
+                        } else if (BuildConfig.USE_CREANGER_AUTH && myProfile) {
+                            // Creanger: add-birthday placeholder.
+                            detailCell.setTextAndValue(
+                                    LocaleController.getString(R.string.AddBirthday),
+                                    LocaleController.getString(R.string.ProfileBirthday),
+                                    false
+                            );
                         }
                     } else if (position == phoneRow) {
                         String text;
@@ -12789,6 +12861,10 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                                     }
                                 }
                             }
+                            if (TextUtils.isEmpty(username) && BuildConfig.USE_CREANGER_AUTH && myProfile && userId == getUserConfig().getClientUserId()) {
+                                // Creanger: session fallback for stale synthetic users.
+                                username = getCreangerSelfUsername();
+                            }
                             value = LocaleController.getString(R.string.Username);
                             if (username != null) {
                                 text = "@" + username;
@@ -12835,6 +12911,10 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                         }
                         detailCell.setTextAndValue(value, LocaleController.getString(R.string.TapToChangePhone), true);
                         detailCell.setContentDescriptionValueFirst(false);
+                    } else if (position == creangerEmailRow) {
+                        // Creanger: account email replaces the hidden phone row.
+                        String email = getCreangerSelfEmail();
+                        detailCell.setTextAndValue(email != null ? email : "", LocaleController.getString(R.string.CreangerEmail), false);
                     } else if (position == setUsernameRow) {
                         TLRPC.User user = UserConfig.getInstance(currentAccount).getCurrentUser();
                         String text = "";
@@ -12889,9 +12969,14 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 case VIEW_TYPE_ABOUT_LINK:
                     AboutLinkCell aboutLinkCell = (AboutLinkCell) holder.itemView;
                     if (position == userInfoRow) {
-                        TLRPC.User user = userInfo.user != null ? userInfo.user : getMessagesController().getUser(userInfo.id);
-                        boolean addlinks = isBot || (user != null && user.premium && userInfo.about != null);
-                        aboutLinkCell.setTextAndValue(userInfo.about, LocaleController.getString(R.string.UserBio), addlinks);
+                        if (userInfo != null && !TextUtils.isEmpty(userInfo.about)) {
+                            TLRPC.User user = userInfo.user != null ? userInfo.user : getMessagesController().getUser(userInfo.id);
+                            boolean addlinks = isBot || (user != null && user.premium && userInfo.about != null);
+                            aboutLinkCell.setTextAndValue(userInfo.about, LocaleController.getString(R.string.UserBio), addlinks);
+                        } else if (BuildConfig.USE_CREANGER_AUTH && myProfile) {
+                            // Creanger: add-bio placeholder.
+                            aboutLinkCell.setTextAndValue(LocaleController.getString(R.string.UserBio), LocaleController.getString(R.string.UserBioDetail), false);
+                        }
                     } else if (position == channelInfoRow) {
                         String text = chatInfo.about;
                         while (text.contains("\n\n\n")) {
@@ -13458,7 +13543,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
             if (position == infoHeaderRow || position == membersHeaderRow || position == settingsSectionRow2 ||
                     position == numberSectionRow || position == helpHeaderRow || position == debugHeaderRow || position == botPermissionsHeader) {
                 return VIEW_TYPE_HEADER;
-            } else if (position == phoneRow || position == locationRow || position == numberRow || position == birthdayRow) {
+            } else if (position == phoneRow || position == locationRow || position == numberRow || position == birthdayRow || position == creangerEmailRow) {
                 return VIEW_TYPE_TEXT_DETAIL;
             } else if (position == usernameRow || position == setUsernameRow) {
                 return VIEW_TYPE_TEXT_DETAIL_MULTILINE;
@@ -14550,6 +14635,154 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         return arrayList;
     }
 
+    // ---- Creanger self-profile helpers ----
+    // The auth session (username/email/displayName) is the source of truth for
+    // Creanger profiles; the synthetic TLRPC user may be stale or missing from
+    // the in-memory users map.
+
+    private AuthModels.CreangerUser getCreangerSessionUser() {
+        try {
+            if (!BuildConfig.USE_CREANGER_AUTH) {
+                return null;
+            }
+            return CreangerAuth.getInstance(ApplicationLoader.applicationContext)
+                    .getCurrentUserRepository().getCachedUser();
+        } catch (Exception e) {
+            FileLog.e("CreangerProfile", e);
+            return null;
+        }
+    }
+
+    private String getCreangerSelfUsername() {
+        AuthModels.CreangerUser sessionUser = getCreangerSessionUser();
+        if (sessionUser == null) {
+            return null;
+        }
+        if (!TextUtils.isEmpty(sessionUser.username) && !"null".equals(sessionUser.username)) {
+            return sessionUser.username;
+        }
+        if (!TextUtils.isEmpty(sessionUser.email) && sessionUser.email.contains("@")) {
+            return sessionUser.email.substring(0, sessionUser.email.indexOf('@'));
+        }
+        return null;
+    }
+
+    private String getCreangerSelfEmail() {
+        AuthModels.CreangerUser sessionUser = getCreangerSessionUser();
+        if (sessionUser == null || TextUtils.isEmpty(sessionUser.email) || "null".equals(sessionUser.email)) {
+            return null;
+        }
+        return sessionUser.email;
+    }
+
+    // ---- Creanger self-profile detail (bio + birthday) ----
+    // MTProto full-user never loads for Creanger accounts; bio + birthday come
+    // from the profiles table and are published as a synthetic TL_userFull so
+    // the existing rows render unchanged.
+
+    private void loadCreangerProfileDetail() {
+        if (creangerProfileLoading) {
+            return;
+        }
+        creangerProfileLoading = true;
+        final long uid = userId;
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                SupabaseAuthClient.ProfileRow row =
+                        CreangerLoginFlowHelper.fetchOwnProfileDetail(ApplicationLoader.applicationContext);
+                if (row == null) {
+                    return;
+                }
+                TLRPC.User selfUser = getMessagesController().getUser(uid);
+                if (selfUser == null) {
+                    try {
+                        selfUser = getUserConfig().getCurrentUser();
+                    } catch (Exception ignored) {
+                    }
+                }
+                final TLRPC.TL_userFull full =
+                        CreangerLoginFlowHelper.buildOwnUserFull(uid, selfUser, row);
+                AndroidUtilities.runOnUIThread(() -> {
+                    if (getParentActivity() == null || fragmentView == null || uid != userId) {
+                        return;
+                    }
+                    if (userInfo == null && (!TextUtils.isEmpty(full.about) || full.birthday != null)) {
+                        userInfo = full;
+                        updateListAnimated(false);
+                    }
+                });
+            } catch (Exception ignored) {
+            } finally {
+                creangerProfileLoading = false;
+            }
+        });
+    }
+
+    private void editCreangerBirthday() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        TL_account.TL_birthday current = userInfo != null ? userInfo.birthday : null;
+        showDialog(AlertsCreator.createBirthdayPickerDialog(getParentActivity(),
+                getString(R.string.EditProfileBirthdayTitle), getString(R.string.EditProfileBirthdayButton),
+                current, birthday -> saveCreangerBirthday(birthday), null, false, false, resourcesProvider).create());
+    }
+
+    private void saveCreangerBirthday(TL_account.TL_birthday birthday) {
+        final long uid = userId;
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                CreangerAuth auth = CreangerAuth.getInstance(ApplicationLoader.applicationContext);
+                if (auth == null || auth.getEngine() == null) {
+                    return;
+                }
+                auth.getEngine().updateOwnBirthday(CreangerLoginFlowHelper.fromBirthday(birthday));
+                SupabaseAuthClient.ProfileRow row = auth.getEngine().getOwnProfileDetail();
+                TLRPC.User selfUser = getUserConfig().getCurrentUser();
+                final TLRPC.TL_userFull full =
+                        CreangerLoginFlowHelper.buildOwnUserFull(uid, selfUser, row);
+                AndroidUtilities.runOnUIThread(() -> {
+                    if (getParentActivity() == null || fragmentView == null || uid != userId) {
+                        return;
+                    }
+                    userInfo = full;
+                    updateListAnimated(false);
+                    BulletinFactory.of(ProfileActivity.this).createSimpleBulletin(R.raw.contact_check,
+                            LocaleController.getString(R.string.PrivacyBirthdaySetDone)).show();
+                });
+            } catch (Exception e) {
+                AndroidUtilities.runOnUIThread(() -> {
+                    if (getParentActivity() == null) {
+                        return;
+                    }
+                    BulletinFactory.of(ProfileActivity.this)
+                            .createErrorBulletin(LocaleController.getString(R.string.UnknownError)).show();
+                });
+            }
+        });
+    }
+
+    /**
+     * Completed years since {@code birthday} — {@code java.util.Calendar}
+     * instead of {@code java.time} (min SDK 21, forbidden by AGENTS.md). The
+     * birthday row renders this once a year is stored, so it must not crash on
+     * API 21-25.
+     */
+    private static int birthdayAgeInYears(TL_account.TL_birthday birthday) {
+        java.util.Calendar now = java.util.Calendar.getInstance();
+        java.util.Calendar born = java.util.Calendar.getInstance();
+        born.set(birthday.year, birthday.month - 1, birthday.day, 0, 0, 0);
+        born.set(java.util.Calendar.MILLISECOND, 0);
+        int age = now.get(java.util.Calendar.YEAR) - born.get(java.util.Calendar.YEAR);
+        int nowMonth = now.get(java.util.Calendar.MONTH);
+        int bornMonth = born.get(java.util.Calendar.MONTH);
+        if (nowMonth < bornMonth
+                || (nowMonth == bornMonth && now.get(java.util.Calendar.DAY_OF_MONTH) < born.get(java.util.Calendar.DAY_OF_MONTH))) {
+            age--;
+        }
+        return Math.max(age, 0);
+    }
+
     public void updateListAnimated(boolean updateOnlineCount) {
         updateListAnimated(updateOnlineCount, false);
     }
@@ -14799,6 +15032,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
             put(++pointer, userInfoRow, sparseIntArray);
             put(++pointer, channelInfoRow, sparseIntArray);
             put(++pointer, usernameRow, sparseIntArray);
+            put(++pointer, creangerEmailRow, sparseIntArray);
             put(++pointer, notificationsDividerRow, sparseIntArray);
             put(++pointer, reportDividerRow, sparseIntArray);
             put(++pointer, notificationsRow, sparseIntArray);
@@ -15336,6 +15570,8 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
             copyButton = getString(R.string.ProfileCopyUsername);
         } else if (position == phoneRow) {
             textToCopy = user.phone;
+        } else if (position == creangerEmailRow) {
+            textToCopy = getCreangerSelfEmail();
         } else if (position == birthdayRow) {
             textToCopy = UserInfoActivity.birthdayString(userInfo.birthday);
         }

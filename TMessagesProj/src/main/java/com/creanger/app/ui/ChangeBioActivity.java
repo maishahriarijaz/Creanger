@@ -27,12 +27,18 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.creanger.app.messenger.AndroidUtilities;
+import com.creanger.app.messenger.ApplicationLoader;
+import com.creanger.app.messenger.BuildConfig;
 import com.creanger.app.messenger.FileLog;
 import com.creanger.app.messenger.LocaleController;
 import com.creanger.app.messenger.MessagesController;
 import com.creanger.app.messenger.NotificationCenter;
 import com.creanger.app.messenger.R;
 import com.creanger.app.messenger.UserConfig;
+import com.creanger.app.messenger.Utilities;
+import com.creanger.app.messenger.creanger.CreangerAuth;
+import com.creanger.app.messenger.creanger.api.SupabaseAuthClient;
+import com.creanger.app.messenger.creanger.ui.CreangerLoginFlowHelper;
 import com.creanger.app.tgnet.ConnectionsManager;
 import com.creanger.app.tgnet.TLRPC;
 import com.creanger.app.tgnet.tl.TL_account;
@@ -43,6 +49,7 @@ import com.creanger.app.ui.ActionBar.BaseFragment;
 import com.creanger.app.ui.ActionBar.Theme;
 import com.creanger.app.ui.ActionBar.ThemeDescription;
 import com.creanger.app.ui.Components.AlertsCreator;
+import com.creanger.app.ui.Components.BulletinFactory;
 import com.creanger.app.ui.Components.CodepointsLengthInputFilter;
 import com.creanger.app.ui.Components.EditTextBoldCursor;
 import com.creanger.app.ui.Components.LayoutHelper;
@@ -178,6 +185,9 @@ public class ChangeBioActivity extends BaseFragment {
         if (userFull != null && userFull.about != null) {
             firstNameField.setText(userFull.about);
             firstNameField.setSelection(firstNameField.length());
+        } else if (BuildConfig.USE_CREANGER_AUTH) {
+            // Creanger: MTProto full-user never loads; fetch bio async.
+            loadCreangerBio();
         }
 
         return fragmentView;
@@ -194,7 +204,82 @@ public class ChangeBioActivity extends BaseFragment {
         }
     }
 
+    private void loadCreangerBio() {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                SupabaseAuthClient.ProfileRow row =
+                        CreangerLoginFlowHelper.fetchOwnProfileDetail(ApplicationLoader.applicationContext);
+                if (row == null || TextUtils.isEmpty(row.bio)) {
+                    return;
+                }
+                final String bio = row.bio;
+                AndroidUtilities.runOnUIThread(() -> {
+                    if (getParentActivity() == null || fragmentView == null || firstNameField == null) {
+                        return;
+                    }
+                    if (firstNameField.length() == 0) {
+                        firstNameField.setText(bio);
+                        firstNameField.setSelection(firstNameField.length());
+                    }
+                });
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    private void saveCreangerBio() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final String newBio = firstNameField.getText().toString().replace("\n", "");
+        final AlertDialog progressDialog = new AlertDialog(getParentActivity(), AlertDialog.ALERT_TYPE_SPINNER);
+        progressDialog.show();
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                CreangerAuth auth = CreangerAuth.getInstance(ApplicationLoader.applicationContext);
+                if (auth == null || auth.getEngine() == null) {
+                    throw new IllegalStateException("creanger auth unavailable");
+                }
+                auth.getEngine().updateOwnBio(newBio);
+                SupabaseAuthClient.ProfileRow row = auth.getEngine().getOwnProfileDetail();
+                final long uid = UserConfig.getInstance(currentAccount).getClientUserId();
+                TLRPC.User selfUser = UserConfig.getInstance(currentAccount).getCurrentUser();
+                final TLRPC.TL_userFull full =
+                        CreangerLoginFlowHelper.buildOwnUserFull(uid, selfUser, row);
+                AndroidUtilities.runOnUIThread(() -> {
+                    try {
+                        progressDialog.dismiss();
+                    } catch (Exception e) {
+                        FileLog.e(e);
+                    }
+                    NotificationCenter.getInstance(currentAccount)
+                            .postNotificationName(NotificationCenter.userInfoDidLoad, uid, full);
+                    finishFragment();
+                });
+            } catch (Exception e) {
+                FileLog.e(e);
+                AndroidUtilities.runOnUIThread(() -> {
+                    try {
+                        progressDialog.dismiss();
+                    } catch (Exception e2) {
+                        FileLog.e(e2);
+                    }
+                    if (getParentActivity() == null) {
+                        return;
+                    }
+                    BulletinFactory.of(ChangeBioActivity.this)
+                            .createErrorBulletin(LocaleController.getString(R.string.UnknownError)).show();
+                });
+            }
+        });
+    }
+
     private void saveName() {
+        if (BuildConfig.USE_CREANGER_AUTH) {
+            // Creanger: UserInfoActivity/MTProto profile update is unsupported.
+            saveCreangerBio();
+            return;
+        }
         final TLRPC.UserFull userFull = MessagesController.getInstance(currentAccount).getUserFull(UserConfig.getInstance(currentAccount).getClientUserId());
         if (getParentActivity() == null || userFull == null) {
             return;

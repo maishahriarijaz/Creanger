@@ -49,11 +49,20 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
 
     private final Object writeLock = new Object();
     private Socket socket;
-    private OutputStream output;
-    private InputStream input;
+    // Volatile: close() nulls these from any thread while readLoop()/sendFrame()
+    // touch them concurrently.
+    private volatile OutputStream output;
+    private volatile InputStream input;
     private volatile boolean closed = true;
     private Listener listener;
     private ExecutorService readerExecutor;
+    /**
+     * Supabase project anon key, sent as the {@code apikey} header and query
+     * param on the realtime handshake. Supabase authenticates the handshake
+     * against the project key — the user JWT goes in {@code Authorization}
+     * only. Falls back to the access token when unset (legacy behavior).
+     */
+    private volatile String apiKey;
 
     /**
      * @param endpoint e.g. {@code wss://xyz.supabase.co/realtime/v1/websocket?vsn=1.0.0}
@@ -76,17 +85,25 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
         this.listener = listener;
     }
 
+    /** Sets the Supabase anon key used as {@code apikey} on the handshake. */
+    public void setApiKey(String apiKey) {
+        this.apiKey = apiKey;
+    }
+
     @Override
     public void connect(String accessToken) {
         if (closed != true) {
             // Already running (or mid-open); force a clean slate first.
             close();
         }
-        String endpointToken = accessToken != null ? accessToken : "";
+        String configuredKey = apiKey;
+        String endpointToken = configuredKey != null && !configuredKey.isEmpty()
+                ? configuredKey
+                : (accessToken != null ? accessToken : "");
         String key = WebSocketFrameCodec.generateKey();
         Map<String, String> headers = new HashMap<>();
         headers.put("Authorization", "Bearer " + accessToken);
-        headers.put("apikey", accessToken);
+        headers.put("apikey", endpointToken);
 
         try {
             Socket socketLocal;
@@ -156,10 +173,8 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
             } catch (IOException ignored) {
             }
         }
-        synchronized (writeLock) {
-            output = null;
-            input = null;
-        }
+        output = null;
+        input = null;
     }
 
     // ---- internals ----
@@ -169,19 +184,18 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
         byte[] chunk = new byte[4096];
         try {
             while (!closed) {
+                InputStream in = this.input;
+                if (in == null) {
+                    return;
+                }
                 int n;
-                synchronized (writeLock) {
-                    if (input == null) {
+                try {
+                    n = in.read(chunk);
+                } catch (Exception e) {
+                    if (closed) {
                         return;
                     }
-                    try {
-                        n = input.read(chunk);
-                    } catch (Exception e) {
-                        if (closed) {
-                            return;
-                        }
-                        throw e;
-                    }
+                    throw e;
                 }
                 if (n < 0) {
                     break;

@@ -255,6 +255,71 @@ public class SupabaseAuthClientTest {
     }
 
     @Test
+    public void getProfileParsesBioAndSelectsIt() throws Exception {
+        FakeTransport t = new FakeTransport();
+        t.responseBody = "[{\"user_id\":\"u9\",\"username\":\"ijaz\",\"first_name\":\"Ijaz\","
+                + "\"last_name\":null,\"display_name\":null,\"bio\":\"Hello world\"}]";
+        SupabaseAuthClient client = new SupabaseAuthClient(t);
+
+        SupabaseAuthClient.ProfileRow row = client.getProfile("access-123", "u9");
+
+        assertNotNull(row);
+        assertEquals("Hello world", row.bio);
+        assertNull(row.birthday);
+        assertTrue(t.requests.get(0).query.get("select").contains("bio"));
+    }
+
+    @Test
+    public void getProfileDetailReturnsBirthday() throws Exception {
+        FakeTransport t = new FakeTransport();
+        t.responseBody = "[{\"user_id\":\"u9\",\"username\":\"ijaz\",\"first_name\":null,"
+                + "\"last_name\":null,\"display_name\":null,\"bio\":null,\"birthday\":\"1990-05-17\"}]";
+        SupabaseAuthClient client = new SupabaseAuthClient(t);
+
+        SupabaseAuthClient.ProfileRow row = client.getProfileDetail("access-123", "u9");
+
+        assertNotNull(row);
+        assertEquals("1990-05-17", row.birthday);
+        assertEquals(1, t.requests.size());
+    }
+
+    @Test
+    public void updateOwnBioPatchesBioAndBlankClears() throws Exception {
+        FakeTransport t = new FakeTransport();
+        t.statusCode = 204;
+        t.responseBody = "";
+        SupabaseAuthClient client = new SupabaseAuthClient(t);
+
+        client.updateOwnBio("access-123", "u9", "New bio");
+        ApiRequest req = t.requests.get(0);
+        assertEquals("PATCH", req.method);
+        assertEquals("/rest/v1/profiles", req.path);
+        assertEquals("eq.u9", req.query.get("user_id"));
+        assertEquals("access-123", req.accessToken);
+        assertEquals("New bio", new JSONObject(req.jsonBody).getString("bio"));
+
+        client.updateOwnBio("access-123", "u9", "   ");
+        assertTrue(new JSONObject(t.requests.get(1).jsonBody).isNull("bio"));
+    }
+
+    @Test
+    public void updateOwnBirthdayPatchesDateAndNullClears() throws Exception {
+        FakeTransport t = new FakeTransport();
+        t.statusCode = 204;
+        t.responseBody = "";
+        SupabaseAuthClient client = new SupabaseAuthClient(t);
+
+        client.updateOwnBirthday("access-123", "u9", "1990-05-17");
+        ApiRequest req = t.requests.get(0);
+        assertEquals("PATCH", req.method);
+        assertEquals("/rest/v1/profiles", req.path);
+        assertEquals("1990-05-17", new JSONObject(req.jsonBody).getString("birthday"));
+
+        client.updateOwnBirthday("access-123", "u9", null);
+        assertTrue(new JSONObject(t.requests.get(1).jsonBody).isNull("birthday"));
+    }
+
+    @Test
     public void updateOwnProfilePatchUsernameAndName() throws Exception {
         FakeTransport t = new FakeTransport();
         t.statusCode = 204;

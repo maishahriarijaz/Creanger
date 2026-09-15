@@ -238,8 +238,8 @@ public class CreangerMessageMappingTest {
 
         int flags = mapping.computeFlags(true);
 
-        // Only FLAG_1 (bit 1) should be set for out=true text message
-        assertEquals(1 << 1, flags);
+        // FLAG_1 (bit 1) + FLAG_8 (bit 8, has_from_id) for out=true text message
+        assertEquals((1 << 1) | (1 << 8), flags);
     }
 
     @Test
@@ -285,6 +285,96 @@ public class CreangerMessageMappingTest {
         CreangerMessageMapping mapping = mapping();
 
         int timestamp = mapping.parseIso8601ToUnix(null);
+        int now = (int) (System.currentTimeMillis() / 1000);
+
+        assertTrue(Math.abs(timestamp - now) < 60);
+    }
+
+    // ---- 8b. ISO8601 parser edge cases ----
+
+    @Test
+    public void isoZuluTimestampParses() {
+        CreangerMessageMapping mapping = mapping();
+
+        assertEquals(1786795200, mapping.parseIso8601ToUnix("2026-08-15T12:00:00Z"));
+    }
+
+    @Test
+    public void isoLowercaseZParses() {
+        CreangerMessageMapping mapping = mapping();
+
+        assertEquals(1786795200, mapping.parseIso8601ToUnix("2026-08-15T12:00:00z"));
+    }
+
+    @Test
+    public void isoFractionalSecondsParse() {
+        CreangerMessageMapping mapping = mapping();
+
+        assertEquals(1786795200, mapping.parseIso8601ToUnix("2026-08-15T12:00:00.123Z"));
+        assertEquals(1786795200, mapping.parseIso8601ToUnix("2026-08-15T12:00:00.123456Z"));
+    }
+
+    @Test
+    public void isoPositiveOffsetParses() {
+        CreangerMessageMapping mapping = mapping();
+
+        // 12:00+02:00 == 10:00Z
+        assertEquals(1786788000, mapping.parseIso8601ToUnix("2026-08-15T12:00:00+02:00"));
+        // With fractional seconds too
+        assertEquals(1786788000, mapping.parseIso8601ToUnix("2026-08-15T12:00:00.5+02:00"));
+    }
+
+    @Test
+    public void isoNegativeOffsetParses() {
+        CreangerMessageMapping mapping = mapping();
+
+        // 12:00-05:30 == 17:30Z
+        assertEquals(1786815000, mapping.parseIso8601ToUnix("2026-08-15T12:00:00-05:30"));
+    }
+
+    @Test
+    public void isoOffsetWithoutFractionParses() {
+        // Regression: without fractional seconds, the offset used to stay in
+        // the split time part (tp[2] == "00+00") and crash the parse.
+        CreangerMessageMapping mapping = mapping();
+
+        // 12:00+00:00 == 12:00Z
+        assertEquals(1786795200, mapping.parseIso8601ToUnix("2026-08-15T12:00:00+00:00"));
+        // And a non-zero offset without fraction: 12:00+02:00 == 10:00Z
+        assertEquals(1786788000, mapping.parseIso8601ToUnix("2026-08-15T12:00:00+02:00"));
+    }
+
+    @Test
+    public void isoMalformedTimestampsFailSafe() {
+        CreangerMessageMapping mapping = mapping();
+        int now = (int) (System.currentTimeMillis() / 1000);
+
+        // Negative year: leading dash is not an offset (index <= 10).
+        assertTrue(Math.abs(mapping.parseIso8601ToUnix("-0500-01-01T00:00:00Z") - now) < 60);
+        // Two-digit year with a compact tail: still safe, fallback.
+        assertTrue(Math.abs(mapping.parseIso8601ToUnix("990517T10:00:00Z") - now) < 60);
+        // Out-of-range month/day: array walk crashes and falls back, never throws.
+        assertTrue(Math.abs(mapping.parseIso8601ToUnix("9999-99-99T99:99:99Z") - now) < 60);
+    }
+
+    @Test
+    public void isoLeapYearDayParses() {
+        CreangerMessageMapping mapping = mapping();
+
+        // 2024-01-01T00:00:00Z == 1704067200; 2024 is a leap year, so
+        // 2024-03-01 is Jan(31) + Feb(29) = +60 days.
+        assertEquals(1709251200, mapping.parseIso8601ToUnix("2024-03-01T00:00:00Z"));
+        // 2023 is NOT a leap year: 2023-01-01 == 1672531200, +59 days.
+        assertEquals(1677628800, mapping.parseIso8601ToUnix("2023-03-01T00:00:00Z"));
+        // 2000 is a leap century (divisible by 400): 2000-01-01 == 946684800, +60 days.
+        assertEquals(951868800, mapping.parseIso8601ToUnix("2000-03-01T00:00:00Z"));
+    }
+
+    @Test
+    public void isoEmptyStringDefaultsToNow() {
+        CreangerMessageMapping mapping = mapping();
+
+        int timestamp = mapping.parseIso8601ToUnix("");
         int now = (int) (System.currentTimeMillis() / 1000);
 
         assertTrue(Math.abs(timestamp - now) < 60);

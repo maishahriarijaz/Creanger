@@ -11,6 +11,7 @@ import com.creanger.app.messenger.creanger.auth.AuthState;
 import com.creanger.app.messenger.creanger.auth.CreangerAuthEngine;
 import com.creanger.app.messenger.creanger.model.ApiError;
 import com.creanger.app.messenger.creanger.model.AuthModels.AuthSession;
+import com.creanger.app.messenger.creanger.model.AuthModels.CreangerUser;
 import com.creanger.app.messenger.creanger.model.AuthModels.GoogleAuthResult;
 import com.creanger.app.messenger.creanger.model.AuthModels.SignupResult;
 import com.creanger.app.messenger.creanger.storage.CreangerTokenStore;
@@ -592,6 +593,63 @@ public class CreangerAuthEngineTest {
         assertEquals("Ijaz Ahmed", row.displayName);
         assertEquals("ijaz", row.username);
         assertEquals("eq.peer-9", t.requests.get(0).query.get("user_id"));
+    }
+
+    @Test
+    public void getOwnProfileDetailFallsBackWhenBirthdayUnknown() throws Exception {
+        InMemoryTokenStore store = new InMemoryTokenStore();
+        store.store(new AuthSession("acc", "ref",
+                new CreangerUser("u9", "ijaz", "i@x.com", true, "Ijaz", null, null),
+                System.currentTimeMillis()));
+        ScriptedTransport t = new ScriptedTransport();
+        t.responses.add(t.json(400, "{\"code\":\"42703\",\"message\":\"column profiles.birthday does not exist\"}"));
+        t.responses.add(t.json(200,
+                "[{\"user_id\":\"u9\",\"username\":\"ijaz\",\"first_name\":\"Ijaz\","
+                        + "\"last_name\":null,\"display_name\":null,\"bio\":\"Hi\"}]"));
+        CreangerAuthEngine engine = new CreangerAuthEngine(new SupabaseAuthClient(t), store);
+
+        SupabaseAuthClient.ProfileRow row = engine.getOwnProfileDetail();
+
+        assertNotNull(row);
+        assertEquals("Hi", row.bio);
+        assertNull(row.birthday);
+        assertEquals(2, t.requests.size());
+        assertTrue(t.requests.get(0).query.get("select").contains("birthday"));
+        assertFalse(t.requests.get(1).query.get("select").contains("birthday"));
+    }
+
+    @Test
+    public void getOwnProfileDetailRequiresSession() {
+        CreangerAuthEngine engine = new CreangerAuthEngine(
+                new SupabaseAuthClient(new ScriptedTransport()), new InMemoryTokenStore());
+        try {
+            engine.getOwnProfileDetail();
+            fail("expected missing-session failure");
+        } catch (Exception e) {
+            assertTrue(e instanceof CreangerApiException);
+        }
+    }
+
+    @Test
+    public void updateOwnBioAndBirthdayPatchOwnRow() throws Exception {
+        InMemoryTokenStore store = new InMemoryTokenStore();
+        store.store(new AuthSession("acc", "ref",
+                new CreangerUser("u9", "ijaz", "i@x.com", true, "Ijaz", null, null),
+                System.currentTimeMillis()));
+        ScriptedTransport t = new ScriptedTransport();
+        t.responses.add(t.json(204, ""));
+        t.responses.add(t.json(204, ""));
+        CreangerAuthEngine engine = new CreangerAuthEngine(new SupabaseAuthClient(t), store);
+
+        engine.updateOwnBio("Hello");
+        engine.updateOwnBirthday("1990-05-17");
+
+        assertEquals(2, t.requests.size());
+        assertEquals("PATCH", t.requests.get(0).method);
+        assertEquals("/rest/v1/profiles", t.requests.get(0).path);
+        assertEquals("eq.u9", t.requests.get(0).query.get("user_id"));
+        assertEquals("Hello", new JSONObject(t.requests.get(0).jsonBody).getString("bio"));
+        assertEquals("1990-05-17", new JSONObject(t.requests.get(1).jsonBody).getString("birthday"));
     }
 
     @Test

@@ -236,15 +236,17 @@ public final class MessageRealtimeClient {
         if (!active || chatId == null) {
             return;
         }
-        try {
-            JSONObject payload = new JSONObject();
-            payload.put("user_id", userId);
-            payload.put("chat_id", chatId);
-            payload.put("is_typing", isTyping);
-            transport.sendBroadcast("typing", payload.toString());
-        } catch (Exception e) {
-            // Broadcast failures are non-fatal; typing is best-effort.
-        }
+        connectExecutor.execute(() -> {
+            try {
+                JSONObject payload = new JSONObject();
+                payload.put("user_id", userId);
+                payload.put("chat_id", chatId);
+                payload.put("is_typing", isTyping);
+                transport.sendBroadcast("typing", payload.toString());
+            } catch (Exception e) {
+                // Broadcast failures are non-fatal; typing is best-effort.
+            }
+        });
     }
 
     // ---- connection lifecycle ----

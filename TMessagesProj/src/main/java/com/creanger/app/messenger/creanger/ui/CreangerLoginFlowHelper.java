@@ -1,14 +1,21 @@
 package com.creanger.app.messenger.creanger.ui;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 
+import androidx.annotation.Nullable;
+
 import com.creanger.app.messenger.UserConfig;
 import com.creanger.app.messenger.creanger.api.CreangerApiException;
+import com.creanger.app.messenger.creanger.api.SupabaseAuthClient;
 import com.creanger.app.messenger.creanger.model.AuthModels.CreangerUser;
 import com.creanger.app.tgnet.TLRPC;
+import com.creanger.app.tgnet.tl.TL_account;
 import com.creanger.app.ui.LaunchActivity;
+
+import java.util.Locale;
 
 /**
  * Shared helper for completing Creanger auth and launching the main app.
@@ -120,16 +127,147 @@ public final class CreangerLoginFlowHelper {
             if (self == null) {
                 return;
             }
+            // Stored synthetic users may predate the username backfill (or a
+            // display-name change); refresh missing fields from the session so
+            // userId-based screens (self Profile, avatars) resolve correctly.
+            boolean userChanged = false;
+            try {
+                com.creanger.app.messenger.creanger.CreangerAuth auth =
+                        com.creanger.app.messenger.creanger.CreangerAuth.getInstance(
+                                activity.getApplicationContext());
+                com.creanger.app.messenger.creanger.model.AuthModels.CreangerUser sessionUser = null;
+                try {
+                    if (auth != null && auth.getCurrentUserRepository() != null) {
+                        sessionUser = auth.getCurrentUserRepository().getCachedUser();
+                    }
+                } catch (Exception ignored) {
+                }
+                if (sessionUser != null) {
+                    String username = sessionUser.username;
+                    if ((username == null || username.isEmpty() || "null".equals(username))
+                            && sessionUser.email != null && sessionUser.email.contains("@")) {
+                        username = sessionUser.email.substring(0, sessionUser.email.indexOf('@'));
+                    }
+                    if (username != null && !username.isEmpty() && !"null".equals(username)
+                            && (self.username == null || self.username.isEmpty())) {
+                        self.username = username;
+                        userChanged = true;
+                    }
+                    String display = sessionUser.displayName;
+                    if (display == null || display.isEmpty() || "null".equals(display)) {
+                        display = username;
+                    }
+                    if (display != null && !display.isEmpty() && !"null".equals(display)
+                            && (self.first_name == null || self.first_name.isEmpty())) {
+                        self.first_name = display;
+                        userChanged = true;
+                    }
+                }
+                if (userChanged) {
+                    try {
+                        com.creanger.app.messenger.UserConfig cfg =
+                                com.creanger.app.messenger.UserConfig.getInstance(account);
+                        if (cfg != null) {
+                            cfg.saveConfig(true);
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+            } catch (Exception ignored) {
+            }
             try {
                 com.creanger.app.messenger.MessagesController mc =
                         com.creanger.app.messenger.MessagesController.getInstance(account);
-                if (mc != null && mc.getUser(self.id) == null) {
+                if (mc != null && (mc.getUser(self.id) == null || userChanged)) {
                     mc.putUser(self, true);
                 }
             } catch (Exception ignored) {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    /**
+     * Loads the caller's own full profile row (bio + birthday). Blocking —
+     * must run off the main thread. Returns null when unauthenticated, when
+     * Creanger auth is off, or when the row is missing/unreachable.
+     */
+    @Nullable
+    public static SupabaseAuthClient.ProfileRow fetchOwnProfileDetail(Context context) {
+        try {
+            if (context == null || !com.creanger.app.messenger.BuildConfig.USE_CREANGER_AUTH) {
+                return null;
+            }
+            com.creanger.app.messenger.creanger.CreangerAuth auth =
+                    com.creanger.app.messenger.creanger.CreangerAuth.getInstance(
+                            context.getApplicationContext());
+            if (auth == null || auth.getEngine() == null) {
+                return null;
+            }
+            return auth.getEngine().getOwnProfileDetail();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    /**
+     * Builds a synthetic full-user for the Creanger self profile so the
+     * existing ProfileActivity rows (bio, birthday) render without MTProto.
+     */
+    public static TLRPC.TL_userFull buildOwnUserFull(long uid, TLRPC.User user,
+            SupabaseAuthClient.ProfileRow row) {
+        TLRPC.TL_userFull full = new TLRPC.TL_userFull();
+        full.id = uid;
+        if (user != null) {
+            full.user = user;
+        }
+        if (row != null) {
+            if (row.bio != null && !row.bio.isEmpty()) {
+                full.about = row.bio;
+            }
+            TL_account.TL_birthday birthday = toBirthday(row.birthday);
+            if (birthday != null) {
+                full.birthday = birthday;
+            }
+        }
+        return full;
+    }
+
+    /** Parses an ISO yyyy-MM-dd date into a TL birthday (with year). */
+    @Nullable
+    public static TL_account.TL_birthday toBirthday(@Nullable String isoDate) {
+        if (isoDate == null) {
+            return null;
+        }
+        try {
+            String[] parts = isoDate.trim().split("-", -1);
+            if (parts.length != 3) {
+                return null;
+            }
+            int year = Integer.parseInt(parts[0]);
+            int month = Integer.parseInt(parts[1]);
+            int day = Integer.parseInt(parts[2]);
+            if (year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) {
+                return null;
+            }
+            TL_account.TL_birthday birthday = new TL_account.TL_birthday();
+            birthday.flags |= 1;
+            birthday.year = year;
+            birthday.month = month;
+            birthday.day = day;
+            return birthday;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    /** Formats a TL birthday as ISO yyyy-MM-dd for the profiles API. */
+    @Nullable
+    public static String fromBirthday(@Nullable TL_account.TL_birthday birthday) {
+        if (birthday == null || birthday.year <= 0) {
+            return null;
+        }
+        return String.format(Locale.US, "%04d-%02d-%02d", birthday.year, birthday.month, birthday.day);
     }
 
     static long creangerUserIdToLong(CreangerUser user) {

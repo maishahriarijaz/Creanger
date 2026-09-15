@@ -285,27 +285,95 @@ public class SupabaseAuthClient {
     public ProfileRow getProfile(String accessToken, String userId) throws IOException, CreangerApiException {
         Map<String, String> query = new java.util.LinkedHashMap<>();
         query.put("user_id", "eq." + userId);
-        query.put("select", "user_id,username,first_name,last_name,display_name");
+        query.put("select", "user_id,username,first_name,last_name,display_name,bio");
         TransportResponse raw = execute("GET", "/rest/v1/profiles", query, null, accessToken);
         if (!isSuccess(raw)) {
             throw new CreangerApiException(raw.statusCode, parseError(raw));
         }
+        ProfileRow row = parseProfileRow(raw.body, raw.statusCode);
+        if (row == null || row.username == null || row.username.isEmpty()) {
+            return null;
+        }
+        return row;
+    }
+
+    /**
+     * Loads a profile row including birthday for the self Profile screen. The
+     * birthday column ships in migration 039; backends that have not applied
+     * it yet answer 400 to the birthday projection, so fall back to the
+     * birthday-less select instead of failing. Never used on the login path
+     * (see {@link #getProfile}).
+     */
+    @Nullable
+    public ProfileRow getProfileDetail(String accessToken, String userId) throws IOException, CreangerApiException {
+        Map<String, String> query = new java.util.LinkedHashMap<>();
+        query.put("user_id", "eq." + userId);
+        query.put("select", "user_id,username,first_name,last_name,display_name,bio,birthday");
+        TransportResponse raw = execute("GET", "/rest/v1/profiles", query, null, accessToken);
+        if (!isSuccess(raw)) {
+            // Pre-039 backend: birthday is an unknown column. Retry without it.
+            Map<String, String> fallback = new java.util.LinkedHashMap<>();
+            fallback.put("user_id", "eq." + userId);
+            fallback.put("select", "user_id,username,first_name,last_name,display_name,bio");
+            TransportResponse retry = execute("GET", "/rest/v1/profiles", fallback, null, accessToken);
+            if (!isSuccess(retry)) {
+                throw new CreangerApiException(retry.statusCode, parseError(retry));
+            }
+            raw = retry;
+        }
+        return parseProfileRow(raw.body, raw.statusCode);
+    }
+
+    private ProfileRow parseProfileRow(String body, int statusCode) throws CreangerApiException {
         try {
-            JSONArray arr = new JSONArray(raw.body);
+            JSONArray arr = new JSONArray(body);
             if (arr.length() == 0) {
                 return null;
             }
             JSONObject o = arr.getJSONObject(0);
-            ProfileRow row = new ProfileRow(
+            return new ProfileRow(
                     o.optString("user_id", null),
                     o.optString("username", null),
                     o.optString("first_name", null),
                     o.optString("last_name", null),
-                    o.optString("display_name", null));
-            return row.username == null || row.username.isEmpty() ? null : row;
+                    o.optString("display_name", null),
+                    emptyToNull(o.optString("bio", null)),
+                    emptyToNull(o.optString("birthday", null)));
         } catch (JSONException e) {
-            throw new CreangerApiException(raw.statusCode, new ApiError(
+            throw new CreangerApiException(statusCode, new ApiError(
                     ApiError.INTERNAL_ERROR, "malformed profiles response", null, 0));
+        }
+    }
+
+    /**
+     * Updates the caller's own bio (RLS-scoped PATCH). Blank clears it.
+     */
+    public void updateOwnBio(String accessToken, String userId, @Nullable String bio)
+            throws IOException, CreangerApiException {
+        Map<String, String> query = new java.util.LinkedHashMap<>();
+        query.put("user_id", "eq." + userId);
+        String normalized = bio != null && !bio.trim().isEmpty() ? bio : null;
+        JSONObject body = put(obj(), "bio", normalized != null ? normalized : JSONObject.NULL);
+        ApiRequest request = new ApiRequest("PATCH", "/rest/v1/profiles", query, body.toString(), accessToken, null);
+        TransportResponse raw = transport.execute(request);
+        if (!isSuccess(raw)) {
+            throw new CreangerApiException(raw.statusCode, parseError(raw));
+        }
+    }
+
+    /**
+     * Updates the caller's own birthday as ISO yyyy-MM-dd, or null to clear.
+     * Requires migration 039 on the backend.
+     */
+    public void updateOwnBirthday(String accessToken, String userId, @Nullable String birthdayIso)
+            throws IOException, CreangerApiException {
+        Map<String, String> query = new java.util.LinkedHashMap<>();
+        query.put("user_id", "eq." + userId);
+        JSONObject body = put(obj(), "birthday", birthdayIso != null ? birthdayIso : JSONObject.NULL);
+        ApiRequest request = new ApiRequest("PATCH", "/rest/v1/profiles", query, body.toString(), accessToken, null);
+        TransportResponse raw = transport.execute(request);
+        if (!isSuccess(raw)) {
+            throw new CreangerApiException(raw.statusCode, parseError(raw));
         }
     }
 
@@ -516,15 +584,23 @@ public class SupabaseAuthClient {
         public final String lastName;
         @Nullable
         public final String displayName;
+        @Nullable
+        public final String bio;
+        /** ISO yyyy-MM-dd birth date, or null when unset (needs migration 039). */
+        @Nullable
+        public final String birthday;
 
         public ProfileRow(String userId, @Nullable String username,
                           @Nullable String firstName, @Nullable String lastName,
-                          @Nullable String displayName) {
+                          @Nullable String displayName, @Nullable String bio,
+                          @Nullable String birthday) {
             this.userId = userId;
             this.username = username;
             this.firstName = firstName;
             this.lastName = lastName;
             this.displayName = displayName;
+            this.bio = bio;
+            this.birthday = birthday;
         }
     }
 }

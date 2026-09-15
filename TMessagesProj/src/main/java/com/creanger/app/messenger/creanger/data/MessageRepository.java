@@ -1335,7 +1335,26 @@ public final class MessageRepository {
                 byId.put(m.id, m);
             } else if (!m.isLocal) {
                 // Server rows are authoritative and reflect the newest fetch.
-                byId.put(m.id, m);
+                // But a server copy WITHOUT chat_seq (the just-confirmed send
+                // that the RPC confirmed by id only) must NOT clobber a server
+                // copy that already carries its real chat_seq (the Realtime
+                // echo) — otherwise the ordering key is lost until the next
+                // full reload re-sorts the list.
+                boolean prevHasSeq = prev.chatSeq != null;
+                boolean mHasSeq = m.chatSeq != null;
+                if (prevHasSeq && !mHasSeq) {
+                    // keep prev (seq-bearing); optionally upgrade attachments
+                    if (prev.attachments.isEmpty() && !m.attachments.isEmpty()) {
+                        byId.put(m.id, withAttachments(prev, m.attachments));
+                    }
+                } else if (!prevHasSeq && mHasSeq) {
+                    // incoming echo carries the real seq; keep any attachment
+                    // metadata the confirmed copy already held
+                    byId.put(m.id, prev.attachments.isEmpty() || !m.attachments.isEmpty()
+                            ? m : withAttachments(m, prev.attachments));
+                } else {
+                    byId.put(m.id, m);
+                }
             }
         }
         // Dedupe by client_message_id too: two copies of the same send must collapse.
@@ -1407,11 +1426,30 @@ public final class MessageRepository {
 
     /** A copy of {@code m} with {@code content} replaced and edit markers set. */
     private static CreangerMessage withEditedContent(CreangerMessage m, String content) {
-        String now = java.time.Instant.now().toString();
+        String now = nowIsoUtc();
         return new CreangerMessage(
                 m.id, m.chatId, m.senderId, m.messageType, content, m.status,
                 m.clientMessageId, m.chatSeq, m.createdAt, m.editedAt != null ? m.editedAt : now,
                 m.deletedAt, now, m.replyToMessageId, m.isLocal, m.attachments);
+    }
+
+    /**
+     * Current UTC time as ISO-8601 {@code yyyy-MM-dd'T'HH:mm:ss'Z'} — no
+     * {@code java.time} (min SDK 21, forbidden by AGENTS.md). UTC lexicographic
+     * order equals chronological order, which the newest-first cache sort and
+     * the edit echo-collapse both rely on.
+     */
+    private static String nowIsoUtc() {
+        final java.util.GregorianCalendar c = new java.util.GregorianCalendar(
+                java.util.TimeZone.getTimeZone("UTC"));
+        return String.format(java.util.Locale.US,
+                "%04d-%02d-%02dT%02d:%02d:%02dZ",
+                c.get(java.util.Calendar.YEAR),
+                c.get(java.util.Calendar.MONTH) + 1,
+                c.get(java.util.Calendar.DAY_OF_MONTH),
+                c.get(java.util.Calendar.HOUR_OF_DAY),
+                c.get(java.util.Calendar.MINUTE),
+                c.get(java.util.Calendar.SECOND));
     }
 
     /** True when {@code m} already carries {@code content} (an echo/no-op edit). */
@@ -1554,13 +1592,21 @@ public final class MessageRepository {
                 if (m.clientMessageId != null && m.clientMessageId.equals(clientMessageId) && m.isLocal) {
                     CreangerMessage confirmed = new CreangerMessage(
                             serverId, chatId, senderId, m.messageType, m.content, MessageStatus.SENT,
-                            clientMessageId, m.chatSeq, null, null, null, null,
+                            clientMessageId, m.chatSeq, m.createdAt != null ? m.createdAt : nowIsoUtc(),
+                            null, null, null,
                             m.replyToMessageId, false, m.attachments);
                     updated.add(confirmed);
                 } else {
                     updated.add(m);
                 }
             }
+            // The confirmed row still carries no chat_seq (the RPC returns only
+            // the id), so keep the cache's newest-first invariant explicitly:
+            // the createdAt stamp orders consecutive same-day confirms, and the
+            // re-sort guards against any positional drift from in-place swaps.
+            // The Realtime/REST row with the real chat_seq supersedes this copy
+            // through the normal merge.
+            updated.sort(MessageRepository::compareNewestFirst);
             messagesCache.put(k, updated);
         }
     }

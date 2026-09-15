@@ -484,6 +484,10 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     private float contactsAlpha = 1f;
     private ValueAnimator contactsAlphaAnimator;
     private ViewPage[] viewPages;
+    // Creanger: cached chat list + resolved peers, shared with the lazily
+    // created search adapter so chat-list search includes Creanger chats.
+    private java.util.List<CreangerChat> lastCreangerChats;
+    private java.util.Map<String, String[]> lastCreangerPeers;
     private ActionBarMenuItem passcodeItem;
     private ActionBarMenuItem downloadsItem;
     private DownloadProgressIcon downloadProgressIcon;
@@ -6227,10 +6231,15 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 if (viewPages == null) {
                     return;
                 }
+                lastCreangerChats = chats;
+                lastCreangerPeers = peers;
                 for (int a = 0; a < viewPages.length; a++) {
                     if (viewPages[a] != null && viewPages[a].dialogsAdapter != null) {
                         viewPages[a].dialogsAdapter.setCreangerChats(chats, peers);
                     }
+                }
+                if (searchViewPager != null && searchViewPager.dialogsSearchAdapter != null) {
+                    searchViewPager.dialogsSearchAdapter.setCreangerSearchChats(chats, peers);
                 }
             });
         });
@@ -6799,6 +6808,12 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     searchDialogId = dialogId;
                     searchObject = (TLRPC.EncryptedChat) obj;
                 }
+            } else if (obj instanceof CreangerChat) {
+                CreangerChat creangerChat = (CreangerChat) obj;
+                if (creangerChat.id != null && !creangerChat.id.isEmpty()) {
+                    presentFragment(ChatActivity.ofCreangerChat(creangerChat.id));
+                }
+                return;
             } else if (obj instanceof MessageObject) {
                 MessageObject messageObject = msg = (MessageObject) obj;
                 dialogId = messageObject.getDialogId();
@@ -11356,6 +11371,13 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
         };
         ((ContentView) fragmentView).addView(searchViewPager, searchViewPagerIndex);
+        // Creanger: the search adapter is created lazily here, possibly after
+        // updateCreangerChats already ran — feed it the cached list so search
+        // includes Creanger chats from the first query.
+        if (BuildConfig.USE_CREANGER_AUTH && lastCreangerChats != null
+                && searchViewPager.dialogsSearchAdapter != null) {
+            searchViewPager.dialogsSearchAdapter.setCreangerSearchChats(lastCreangerChats, lastCreangerPeers);
+        }
 
         searchViewPager.dialogsSearchAdapter.setDelegate(new DialogsSearchAdapter.DialogsSearchAdapterDelegate() {
             @Override

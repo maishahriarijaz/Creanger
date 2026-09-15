@@ -68,21 +68,21 @@ public class CreangerDialogListTest {
     @Test
     public void peerDisplayPrefersDisplayThenFullName() {
         assertEquals("Ijaz", CreangerDialogList.peerDisplayName(
-                new ProfileRow("u", "ijaz", "Test", "User", "Ijaz")));
+                new ProfileRow("u", "ijaz", "Test", "User", "Ijaz", null, null)));
         assertEquals("Test User", CreangerDialogList.peerDisplayName(
-                new ProfileRow("u", "ijaz", "Test", "User", null)));
+                new ProfileRow("u", "ijaz", "Test", "User", null, null, null)));
         assertEquals(null, CreangerDialogList.peerDisplayName(
-                new ProfileRow("u", "ijaz", null, null, null)));
+                new ProfileRow("u", "ijaz", null, null, null, null, null)));
         assertEquals(null, CreangerDialogList.peerDisplayName(null));
         assertEquals("ijaz", CreangerDialogList.peerUsername(
-                new ProfileRow("u", "ijaz", null, null, null)));
+                new ProfileRow("u", "ijaz", null, null, null, null, null)));
         assertEquals(null, CreangerDialogList.peerUsername(
-                new ProfileRow("u", null, null, null, null)));
+                new ProfileRow("u", null, null, null, null, null, null)));
         // Android org.json yields literal "null" for JSON null — never display it.
         assertEquals("Test User", CreangerDialogList.peerDisplayName(
-                new ProfileRow("u", "null", "Test", "User", "null")));
+                new ProfileRow("u", "null", "Test", "User", "null", null, null)));
         assertEquals(null, CreangerDialogList.peerUsername(
-                new ProfileRow("u", "null", null, null, null)));
+                new ProfileRow("u", "null", null, null, null, null, null)));
         assertEquals("Chat", CreangerDialogList.titleFor(
                 chat("1", "direct", null, null, null), "null", "null"));
     }
