@@ -337,15 +337,19 @@ public final class CreangerMessageObjectAdapter {
         photo.dc_id = 0;
         photo.flags = 0;
         photo.sizes = new ArrayList<>();
-        TLRPC.TL_photoSize size = new TLRPC.TL_photoSize();
-        size.type = "m";
-        size.w = intOrZero(att.width);
-        size.h = intOrZero(att.height);
-        size.size = (int) Math.min(att.sizeBytes, Integer.MAX_VALUE);
-        // HTTPS source URL (public first, signed delivery as fallback) routed
-        // through the existing ImageLoader HTTP/cache path; null = safe no-op.
-        size.url = CreangerMessageMapping.imageSourceUrl(att);
-        photo.sizes.add(size);
+        // Full Telegram-style s/m/x/y ladder: same HTTPS source URL on every
+        // rung (ImageLoader HTTP/cache path), scaled layout dims per rung so
+        // FileLoader.getClosestPhotoSizeWithSize picks the right rung per
+        // density. Null url = safe no-op (nothing to load, no MTProto probe).
+        for (CreangerMessageMapping.PhotoSizeSpec spec : CreangerMessageMapping.photoSizeLadder(att)) {
+            TLRPC.TL_photoSize size = new TLRPC.TL_photoSize();
+            size.type = spec.type;
+            size.w = spec.w;
+            size.h = spec.h;
+            size.size = spec.size;
+            size.url = spec.url;
+            photo.sizes.add(size);
+        }
         media.photo = photo;
         media.flags = 1; // FLAG_0: photo present
         return media;

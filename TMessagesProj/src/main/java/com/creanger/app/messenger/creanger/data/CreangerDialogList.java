@@ -156,4 +156,89 @@ public final class CreangerDialogList {
         }
         return sb.toString();
     }
+
+    // ---- Fully Telegram-style dialog row (time / preview / unread / sort) ----
+    // Pure-JVM (no Android types): the Android row (CreangerDialogCell) renders
+    // from these, mirroring the stock DialogCell 4-tier date + preview + badge.
+
+    /** Telegram-style date label (UTC, English): today HH:MM, yesterday, weekday, else dd.MM.yy. */
+    public static String timeLabelFor(int lastMessageDateSec, long nowSec) {
+        if (lastMessageDateSec <= 0) {
+            return "";
+        }
+        long daySecs = 86400L;
+        long nowDay = (nowSec >= 0 ? nowSec : System.currentTimeMillis() / 1000) / daySecs;
+        long msgDay = ((long) lastMessageDateSec) / daySecs;
+        long diff = nowDay - msgDay;
+        if (diff <= 0) {
+            int secOfDay = (int) (lastMessageDateSec % daySecs);
+            if (secOfDay < 0) {
+                secOfDay += (int) daySecs;
+            }
+            return String.format(java.util.Locale.US, "%02d:%02d", secOfDay / 3600, (secOfDay % 3600) / 60);
+        }
+        if (diff == 1) {
+            return "Yesterday";
+        }
+        if (diff < 7) {
+            // 1970-01-01 was a Thursday (index 4 with Monday=0).
+            String[] weekdays = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+            int dow = (int) ((msgDay + 3) % 7);
+            if (dow < 0) {
+                dow += 7;
+            }
+            return weekdays[dow];
+        }
+        java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
+        cal.setTimeInMillis(((long) lastMessageDateSec) * 1000L);
+        int day = cal.get(java.util.Calendar.DAY_OF_MONTH);
+        int month = cal.get(java.util.Calendar.MONTH) + 1;
+        int year = cal.get(java.util.Calendar.YEAR) % 100;
+        return String.format(java.util.Locale.US, "%02d.%02d.%02d", day, month, year);
+    }
+
+    /**
+     * Last-message preview for the dialog row: trimmed content (max 150 chars),
+     * prefixed with "You: " for outbound rows, or "Sender: " for inbound group
+     * rows with a known sender name. Never null, never literal "null".
+     */
+    public static String lastMessagePreview(String content, boolean out,
+                                            String senderName, boolean isDirect) {
+        String body = isPresentable(content) ? content.trim().replaceAll("\\s+", " ") : "";
+        if (body.length() > 150) {
+            body = body.substring(0, 149).trim() + "…";
+        }
+        if (out) {
+            return body.isEmpty() ? "You" : "You: " + body;
+        }
+        if (!isDirect && isPresentable(senderName)) {
+            String sender = senderName.trim().replaceAll("\\s+", " ");
+            return body.isEmpty() ? sender : sender + ": " + body;
+        }
+        return body;
+    }
+
+    /** True when the unread badge must draw. */
+    public static boolean shouldShowUnread(int unreadCount) {
+        return unreadCount > 0;
+    }
+
+    /** Badge text: exact count ("" when none). Never null. */
+    public static String unreadText(int unreadCount) {
+        if (unreadCount <= 0) {
+            return "";
+        }
+        return String.valueOf(unreadCount);
+    }
+
+    /**
+     * Dialog sort: pinned rows first, then newest message date first.
+     * Returns negative when a sorts before b (usable as a Comparator).
+     */
+    public static int sortCompare(boolean pinnedA, int dateA, boolean pinnedB, int dateB) {
+        if (pinnedA != pinnedB) {
+            return pinnedA ? -1 : 1;
+        }
+        return Integer.compare(dateB, dateA);
+    }
 }

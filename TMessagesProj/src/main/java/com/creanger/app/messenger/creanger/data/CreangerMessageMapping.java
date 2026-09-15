@@ -541,6 +541,79 @@ public final class CreangerMessageMapping {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    /** Telegram-style photo size boxes (max side, px). Mirrors server s/m/x/y ladder. */
+    public static final int PHOTO_S_BOX = 100;
+    public static final int PHOTO_M_BOX = 320;
+    public static final int PHOTO_X_BOX = 800;
+    public static final int PHOTO_Y_BOX = 1280;
+
+    /**
+     * Pure-JVM spec for one rung of the Telegram-style photo ladder.
+     * No Android types, no TLRPC — the Android adapter maps these onto
+     * {@code TLRPC.PhotoSize} objects.
+     */
+    public static final class PhotoSizeSpec {
+        public final String type; // s | m | x | y
+        public final int w;
+        public final int h;
+        public final int size;
+        @Nullable
+        public final String url;
+
+        public PhotoSizeSpec(String type, int w, int h, int size, @Nullable String url) {
+            this.type = type;
+            this.w = w;
+            this.h = h;
+            this.size = size;
+            this.url = url;
+        }
+    }
+
+    /**
+     * Scales {@code srcW x srcH} proportionally to fit inside a {@code maxSide}
+     * box (Telegram-style: scale by the LONG side, never upscale).
+     * Returns {@code [w, h]}; {@code [0, 0]} when the source dimensions are
+     * unknown so the renderer decodes real dims from the bitmap.
+     */
+    public static int[] scaledDimensions(int srcW, int srcH, int maxSide) {
+        if (srcW <= 0 || srcH <= 0 || maxSide <= 0) {
+            return new int[]{0, 0};
+        }
+        int longSide = Math.max(srcW, srcH);
+        if (longSide <= maxSide) {
+            return new int[]{srcW, srcH};
+        }
+        double scale = (double) maxSide / (double) longSide;
+        int w = Math.max(1, (int) Math.round(srcW * scale));
+        int h = Math.max(1, (int) Math.round(srcH * scale));
+        return new int[]{w, h};
+    }
+
+    /**
+     * Full Telegram-style s/m/x/y ladder for a Creanger image attachment.
+     * Every rung carries the SAME HTTPS source URL (the provider supplies one
+     * file; rungs differ only in layout dimensions so
+     * {@code FileLoader.getClosestPhotoSizeWithSize} picks the right rung per
+     * screen density, exactly like server-generated Telegram sizes). Always
+     * returns 4 rungs in s,m,x,y order; a missing URL yields null urls (the
+     * renderer then has nothing to load — safe no-op, no MTProto probe).
+     */
+    public static java.util.List<PhotoSizeSpec> photoSizeLadder(@Nullable MediaAttachment attachment) {
+        String url = imageSourceUrl(attachment);
+        int srcW = attachment != null && attachment.width != null ? attachment.width : 0;
+        int srcH = attachment != null && attachment.height != null ? attachment.height : 0;
+        long bytes = attachment != null ? attachment.sizeBytes : 0;
+        int size = (int) Math.max(0, Math.min(bytes, Integer.MAX_VALUE));
+        java.util.List<PhotoSizeSpec> out = new java.util.ArrayList<>(4);
+        String[] types = {"s", "m", "x", "y"};
+        int[] boxes = {PHOTO_S_BOX, PHOTO_M_BOX, PHOTO_X_BOX, PHOTO_Y_BOX};
+        for (int i = 0; i < 4; i++) {
+            int[] wh = scaledDimensions(srcW, srcH, boxes[i]);
+            out.add(new PhotoSizeSpec(types[i], wh[0], wh[1], size, url));
+        }
+        return out;
+    }
+
     /** Bit flag helper */
     public int setFlag(int flags, int bit, boolean value) {
         return value ? (flags | (1 << bit)) : (flags & ~(1 << bit));

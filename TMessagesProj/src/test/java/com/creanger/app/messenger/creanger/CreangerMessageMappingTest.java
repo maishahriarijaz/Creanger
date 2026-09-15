@@ -579,4 +579,67 @@ public class CreangerMessageMappingTest {
         assertEquals("https://signed.example/dl",
                 CreangerMessageMapping.imageSourceUrl(att));
     }
+
+    // ---- 12. Telegram-style photo size ladder (s/m/x/y) ----
+
+    @Test
+    public void scaledDimensionsFitsLongSideInBox() {
+        assertArrayEquals(new int[]{100, 75},
+                CreangerMessageMapping.scaledDimensions(800, 600, 100));
+        assertArrayEquals(new int[]{320, 240},
+                CreangerMessageMapping.scaledDimensions(800, 600, 320));
+        assertArrayEquals(new int[]{800, 600},
+                CreangerMessageMapping.scaledDimensions(800, 600, 800));
+    }
+
+    @Test
+    public void scaledDimensionsNeverUpscales() {
+        assertArrayEquals(new int[]{80, 60},
+                CreangerMessageMapping.scaledDimensions(80, 60, 1280));
+    }
+
+    @Test
+    public void scaledDimensionsUnknownSourceIsZero() {
+        assertArrayEquals(new int[]{0, 0},
+                CreangerMessageMapping.scaledDimensions(0, 0, 320));
+        assertArrayEquals(new int[]{0, 0},
+                CreangerMessageMapping.scaledDimensions(-5, 100, 320));
+    }
+
+    @Test
+    public void photoSizeLadderEmitsTelegramStyleRungs() {
+        MediaAttachment att = new MediaAttachment("a", "m", "med", 0, null, "cloudinary", "k",
+                "https://cdn.example/p.png", null, "image/png", 12345, null,
+                1600, 1200, null, null, null, null, null, null, null);
+        java.util.List<CreangerMessageMapping.PhotoSizeSpec> ladder =
+                CreangerMessageMapping.photoSizeLadder(att);
+        assertEquals(4, ladder.size());
+        assertEquals("s", ladder.get(0).type);
+        assertEquals("m", ladder.get(1).type);
+        assertEquals("x", ladder.get(2).type);
+        assertEquals("y", ladder.get(3).type);
+        // Same HTTPS source on every rung; dims scaled, never upscaled past source.
+        for (CreangerMessageMapping.PhotoSizeSpec spec : ladder) {
+            assertEquals("https://cdn.example/p.png", spec.url);
+            assertEquals(12345, spec.size);
+        }
+        assertEquals(100, ladder.get(0).w);
+        assertEquals(75, ladder.get(0).h);
+        assertEquals(320, ladder.get(1).w);
+        assertEquals(800, ladder.get(2).w);
+        assertEquals(1280, ladder.get(3).w);
+        assertEquals(960, ladder.get(3).h);
+    }
+
+    @Test
+    public void photoSizeLadderNullAttachmentIsSafe() {
+        java.util.List<CreangerMessageMapping.PhotoSizeSpec> ladder =
+                CreangerMessageMapping.photoSizeLadder(null);
+        assertEquals(4, ladder.size());
+        for (CreangerMessageMapping.PhotoSizeSpec spec : ladder) {
+            assertNull(spec.url);
+            assertEquals(0, spec.w);
+            assertEquals(0, spec.h);
+        }
+    }
 }

@@ -112,4 +112,59 @@ public class CreangerDialogListTest {
         assertEquals("F", CreangerDialogList.initialsFor(
                 chat("1", "group", null, "fam", null)));
     }
+
+    // ---- Fully Telegram-style row: date / preview / unread / sort ----
+
+    @Test
+    public void timeLabelSameDayIsHourMinute() {
+        // 2026-09-15T10:30:00Z = epoch day boundary + 10:30.
+        int date = (int) (1757932200L); // verified 10:30 UTC
+        long now = 1757936400L; // same UTC day 11:40
+        assertEquals("10:30", CreangerDialogList.timeLabelFor(date, now));
+    }
+
+    @Test
+    public void timeLabelYesterdayAndWeekdayAndDate() {
+        long now = 1757936400L; // 2026-09-15 (Monday)
+        assertEquals("Yesterday",
+                CreangerDialogList.timeLabelFor((int) (now - 86400), now));
+        // 3 days ago = Friday -> weekday label.
+        String weekday = CreangerDialogList.timeLabelFor((int) (now - 3 * 86400), now);
+        assertEquals("Fri", weekday);
+        // 30 days ago -> dd.MM.yy.
+        assertFalse(CreangerDialogList.timeLabelFor((int) (now - 30 * 86400), now).isEmpty());
+        assertEquals("", CreangerDialogList.timeLabelFor(0, now));
+        assertEquals("", CreangerDialogList.timeLabelFor(-5, now));
+    }
+
+    @Test
+    public void lastMessagePreviewPrefixesAndTruncates() {
+        assertEquals("You: hi", CreangerDialogList.lastMessagePreview("hi", true, null, true));
+        assertEquals("You", CreangerDialogList.lastMessagePreview(null, true, null, true));
+        assertEquals("Bob: hello", CreangerDialogList.lastMessagePreview("hello", false, "Bob", false));
+        assertEquals("hello", CreangerDialogList.lastMessagePreview("hello", false, "Bob", true));
+        assertEquals("", CreangerDialogList.lastMessagePreview(null, false, null, true));
+        assertEquals("", CreangerDialogList.lastMessagePreview("null", false, "null", false));
+        String longText = new String(new char[200]).replace('\0', 'a');
+        String preview = CreangerDialogList.lastMessagePreview(longText, false, null, true);
+        assertTrue(preview.length() <= 151);
+        assertTrue(preview.endsWith("…"));
+    }
+
+    @Test
+    public void unreadBadgeRules() {
+        assertFalse(CreangerDialogList.shouldShowUnread(0));
+        assertTrue(CreangerDialogList.shouldShowUnread(3));
+        assertEquals("", CreangerDialogList.unreadText(0));
+        assertEquals("3", CreangerDialogList.unreadText(3));
+        assertEquals("120", CreangerDialogList.unreadText(120));
+    }
+
+    @Test
+    public void sortPinnedFirstThenNewest() {
+        assertTrue(CreangerDialogList.sortCompare(true, 1, false, 999) < 0);
+        assertTrue(CreangerDialogList.sortCompare(false, 999, true, 1) > 0);
+        assertTrue(CreangerDialogList.sortCompare(false, 200, false, 100) < 0);
+        assertEquals(0, CreangerDialogList.sortCompare(false, 100, false, 100));
+    }
 }

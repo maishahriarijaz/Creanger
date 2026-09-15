@@ -59,18 +59,52 @@ public class CreangerMessageObjectAdapterTest {
 
         TLRPC.TL_messageMediaPhoto media = photoMedia(m);
         TLRPC.TL_photo photo = (TLRPC.TL_photo) media.photo;
-        assertEquals(1, photo.sizes.size());
-        TLRPC.TL_photoSize size = (TLRPC.TL_photoSize) photo.sizes.get(0);
+        // Fully Telegram-style ladder: s/m/x/y, same HTTPS source on every rung.
+        assertEquals(4, photo.sizes.size());
+        String[] expectedTypes = {"s", "m", "x", "y"};
+        int[][] expectedWh = {{100, 75}, {320, 240}, {800, 600}, {800, 600}};
+        for (int i = 0; i < 4; i++) {
+            TLRPC.TL_photoSize size = (TLRPC.TL_photoSize) photo.sizes.get(i);
+            assertEquals(expectedTypes[i], size.type);
+            assertEquals("https://cdn.example/img/photo_1.png", size.url);
+            assertEquals(expectedWh[i][0], size.w);
+            assertEquals(expectedWh[i][1], size.h);
+            assertEquals(12345, size.size);
+            // No MTProto file location: the ImageLoader HTTP path is used instead.
+            assertNull(size.location);
+        }
+    }
 
-        // The existing Photo bubble + PhotoViewer read photoThumbs/sizes; the
-        // source URL they need must ride on the size object.
-        assertEquals("https://cdn.example/img/photo_1.png", size.url);
-        assertEquals("m", size.type);
-        assertEquals(800, size.w);
-        assertEquals(600, size.h);
-        assertEquals(12345, size.size);
-        // No MTProto file location: the ImageLoader HTTP path is used instead.
-        assertNull(size.location);
+    @Test
+    public void photoLadderNeverUpcalesSmallSource() {
+        CreangerMessageUiModel m = image(Collections.singletonList(
+                attachment("https://cdn.example/img/small.png", null, "img/small", "image/png",
+                        80, 60, 500)), null);
+
+        TLRPC.TL_photo photo = (TLRPC.TL_photo) photoMedia(m).photo;
+        assertEquals(4, photo.sizes.size());
+        for (int i = 0; i < 4; i++) {
+            TLRPC.TL_photoSize size = (TLRPC.TL_photoSize) photo.sizes.get(i);
+            assertEquals(80, size.w);
+            assertEquals(60, size.h);
+        }
+    }
+
+    @Test
+    public void photoLadderWithUnknownDimsIsSafeNoOp() {
+        CreangerMessageUiModel m = image(Collections.singletonList(
+                attachment("https://cdn.example/img/broken.png", null, "img/broken", "image/png",
+                        null, null, 700)), null);
+
+        TLRPC.TL_photo photo = (TLRPC.TL_photo) photoMedia(m).photo;
+        assertEquals(4, photo.sizes.size());
+        for (int i = 0; i < 4; i++) {
+            TLRPC.TL_photoSize size = (TLRPC.TL_photoSize) photo.sizes.get(i);
+            assertEquals(0, size.w);
+            assertEquals(0, size.h);
+            assertEquals("https://cdn.example/img/broken.png", size.url);
+            assertNull(size.location);
+        }
     }
 
     @Test
