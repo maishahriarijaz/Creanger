@@ -8,4 +8,12 @@ keystore/
 javac.*.args
 build/
 **/build/
+**/.cxx/
+# Generated native prebuilt outputs (Gradle/CMake/ndk) - never commit
+TMessagesProj/jni/boringssl/lib/
+TMessagesProj/jni/boringssl/util/ar/testdata/
+TMessagesProj/jni/ffmpeg/
+TMessagesProj/jni/tde2e/
+TMessagesProj/jni/third_party/breakpad/src/third_party/linux/lib/
+*.a
 .DS_Store
