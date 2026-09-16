@@ -4,13 +4,14 @@ import com.creanger.app.messenger.creanger.api.SupabaseAuthClient.ProfileRow;
 import com.creanger.app.messenger.creanger.model.ChatModels.ChatMember;
 import com.creanger.app.messenger.creanger.model.ChatModels.CreangerChat;
 import com.creanger.app.messenger.creanger.model.MessageModels.CreangerMessage;
+import com.creanger.app.messenger.creanger.model.MessageModels.MessageStatus;
 
 /**
  * Pure-JVM list rules for showing Creanger chats inside the Telegram-style
  * dialog list: gating (default tab only), stable ids and row text. The
- * Android binding lives in {@code ui.Cells.CreangerDialogCell} and
- * {@code ui.Adapters.DialogsAdapter}; this class holds everything unit
- * testable without Android types.
+ * Android binding renders rows through the stock DialogCell CustomDialog
+ * path (ui.Adapters.DialogsAdapter.customDialogFor); this class holds
+ * everything unit testable without Android types.
  */
 public final class CreangerDialogList {
 
@@ -160,8 +161,8 @@ public final class CreangerDialogList {
     }
 
     // ---- Fully Telegram-style dialog row (time / preview / unread / sort) ----
-    // Pure-JVM (no Android types): the Android row (CreangerDialogCell) renders
-    // from these, mirroring the stock DialogCell 4-tier date + preview + badge.
+    // Pure-JVM (no Android types): the Android row renders from these through
+    // the stock DialogCell.CustomDialog path, mirroring native rows exactly.
 
     /** Telegram-style date label (UTC, English): today HH:MM, yesterday, weekday, else dd.MM.yy. */
     public static String timeLabelFor(int lastMessageDateSec, long nowSec) {
@@ -220,6 +221,20 @@ public final class CreangerDialogList {
         return body;
     }
 
+    /**
+     * Raw row message text for the native dialog cell: trimmed content with
+     * line breaks flattened to spaces (max 150 chars, mirroring the stock
+     * cell's own truncation). No sender prefixes — the native cell draws its
+     * own read-state ticks. Never null, never literal "null".
+     */
+    public static String rowMessageText(String content) {
+        String body = isPresentable(content) ? content.trim().replaceAll("\\s+", " ") : "";
+        if (body.length() > 150) {
+            body = body.substring(0, 150);
+        }
+        return body;
+    }
+
     /** True when the unread badge must draw. */
     public static boolean shouldShowUnread(int unreadCount) {
         return unreadCount > 0;
@@ -244,8 +259,8 @@ public final class CreangerDialogList {
         return Integer.compare(dateB, dateA);
     }
 
-    // ---- Row state for the fully Telegram-style bind (CreangerDialogCell.bindFull) ----
-    // Pure-JVM assembly of everything bindFull needs beyond title/peer identity:
+    // ---- Row state for the native dialog bind (DialogCell.CustomDialog) ----
+    // Pure-JVM assembly of everything the native bind needs beyond title/peer identity:
     // last-message preview + date, unread count, pinned/muted flags. The Android
     // layer (DialogsActivity/DialogsAdapter) only fetches data and posts the map.
 
@@ -256,7 +271,9 @@ public final class CreangerDialogList {
      * Render state of one dialog row. {@code lastMessage} is the raw newest
      * non-deleted content (possibly empty — the cell falls back to the
      * subtitle); {@code lastMessageDateSec} is 0 when unknown (hides the date
-     * label). Never null fields except {@code senderName}.
+     * label). {@code latestStatus} is the newest visible message's
+     * {@link MessageStatus} (null when none) driving the read-state ticks.
+     * Never null fields except {@code senderName}/{@code latestStatus}.
      */
     public static final class RowState {
         public final String lastMessage;
@@ -266,9 +283,11 @@ public final class CreangerDialogList {
         public final boolean muted;
         public final boolean out;
         public final String senderName;
+        public final String latestStatus;
 
         public RowState(String lastMessage, int lastMessageDateSec, int unreadCount,
-                        boolean pinned, boolean muted, boolean out, String senderName) {
+                        boolean pinned, boolean muted, boolean out, String senderName,
+                        String latestStatus) {
             this.lastMessage = lastMessage != null ? lastMessage : "";
             this.lastMessageDateSec = lastMessageDateSec;
             this.unreadCount = Math.max(0, unreadCount);
@@ -276,6 +295,7 @@ public final class CreangerDialogList {
             this.muted = muted;
             this.out = out;
             this.senderName = senderName;
+            this.latestStatus = latestStatus;
         }
     }
 
@@ -361,10 +381,16 @@ public final class CreangerDialogList {
 
     /**
      * Counts known-unread messages: inbound (sender is not me), not
-     * soft-deleted, strictly newer than {@code lastReadAtIso}. A null/empty
-     * {@code lastReadAtIso} means nothing was ever marked read, so every
-     * inbound message in the window counts. This is a lower bound over the
-     * fetched window (never inflated), or 0 when inputs are missing.
+     * soft-deleted, and not marked READ. The per-message {@code status}
+     * (migration 026) is the authority — opening the chat advances inbound
+     * rows to {@code read} via {@code mark_message_status}, which clears the
+     * badge. A null status (unknown state) falls back to the legacy
+     * {@code lastReadAtIso} timestamp comparison so old cached rows never
+     * inflate the count.
+     *
+     * <p>Note: {@code chat_members.last_read_at} is never written by any
+     * client or RPC, so timestamp-only counting kept the badge forever; the
+     * status check above is what lets it clear.
      */
     public static int unreadCount(java.util.List<CreangerMessage> messages, String myId,
                                   String lastReadAtIso) {
@@ -381,6 +407,13 @@ public final class CreangerDialogList {
                 continue;
             }
             if (m.senderId == null) {
+                continue;
+            }
+            if (MessageStatus.READ.equals(m.status)) {
+                continue;
+            }
+            if (m.status != null) {
+                count++;
                 continue;
             }
             if (parseIso8601ToUnix(m.createdAt) > readSec) {
@@ -424,11 +457,11 @@ public final class CreangerDialogList {
         boolean pinned = me != null && me.pinnedPosition != null;
         boolean muted = me != null && isMuted(me.mutedUntil, nowMs);
         if (latest == null) {
-            return new RowState("", 0, 0, pinned, muted, false, senderName);
+            return new RowState("", 0, 0, pinned, muted, false, senderName, null);
         }
         boolean out = myId != null && myId.equals(latest.senderId);
         int dateSec = parseIso8601ToUnix(latest.createdAt);
         String content = latest.content != null ? latest.content : "";
-        return new RowState(content, dateSec, unread, pinned, muted, out, senderName);
+        return new RowState(content, dateSec, unread, pinned, muted, out, senderName, latest.status);
     }
 }

@@ -76,8 +76,8 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import com.creanger.app.messenger.creanger.data.CreangerDialogList;
 import com.creanger.app.messenger.creanger.model.ChatModels.CreangerChat;
-import com.creanger.app.ui.Cells.CreangerDialogCell;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
@@ -129,12 +129,21 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
     // main dialogs list renders via DialogsAdapter.setCreangerChats).
     private List<CreangerChat> creangerSearchSource = new ArrayList<>();
     private Map<String, String[]> creangerSearchPeers = new HashMap<>();
+    private Map<String, CreangerDialogList.RowState> creangerSearchRows = new HashMap<>();
 
     /** Cached Creanger chats (plus resolved direct-peer display data) used to
      * include Creanger matches in chat-list search results. */
     public void setCreangerSearchChats(List<CreangerChat> chats, Map<String, String[]> peers) {
+        setCreangerSearchChats(chats, peers, null);
+    }
+
+    /** Same as {@link #setCreangerSearchChats(List, Map)} plus per-chat row
+     * state (preview/date/unread) for the native dialog bind. */
+    public void setCreangerSearchChats(List<CreangerChat> chats, Map<String, String[]> peers,
+                                       Map<String, CreangerDialogList.RowState> rows) {
         creangerSearchSource = chats != null ? new ArrayList<>(chats) : new ArrayList<>();
         creangerSearchPeers = peers != null ? new HashMap<>(peers) : new HashMap<>();
+        creangerSearchRows = rows != null ? new HashMap<>(rows) : new HashMap<>();
     }
     public int publicPostsTotalCount;
     public int publicPostsLastRate;
@@ -1748,7 +1757,7 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
                 messagesEmptyLayout.setQuery(lastMessagesSearchString);
                 break;
             case VIEW_TYPE_CREANGER_CHAT:
-                view = new CreangerDialogCell(mContext);
+                view = new DialogCell(dialogsActivity, mContext, true, false, currentAccount, null);
                 break;
             case VIEW_TYPE_ADD_BY_PHONE:
             default:
@@ -1773,12 +1782,17 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
     public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
         switch (holder.getItemViewType()) {
             case VIEW_TYPE_CREANGER_CHAT: {
-                CreangerDialogCell cell = (CreangerDialogCell) holder.itemView;
+                DialogCell cell = (DialogCell) holder.itemView;
                 Object obj = getItem(position);
                 if (obj instanceof CreangerChat) {
                     CreangerChat chat = (CreangerChat) obj;
                     String[] peer = creangerSearchPeers != null ? creangerSearchPeers.get(chat.id) : null;
-                    cell.bind(chat, peer != null ? peer[0] : null, peer != null && peer.length > 1 ? peer[1] : null);
+                    CreangerDialogList.RowState row = creangerSearchRows != null ? creangerSearchRows.get(chat.id) : null;
+                    cell.setDialog(DialogsAdapter.customDialogFor(chat,
+                            peer != null ? peer[0] : null,
+                            peer != null && peer.length > 1 ? peer[1] : null, row));
+                    cell.useSeparator = position + 1 < getItemCount();
+                    cell.fullSeparator = false;
                 }
                 break;
             }

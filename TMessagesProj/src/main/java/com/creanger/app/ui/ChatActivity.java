@@ -141,9 +141,11 @@ import com.creanger.app.messenger.creanger.CreangerChatDetection;
 import com.creanger.app.messenger.creanger.CreangerDocumentUtils;
 import com.creanger.app.messenger.creanger.api.CreangerApiException;
 import com.creanger.app.messenger.creanger.api.CreangerChatApiClient;
+import com.creanger.app.messenger.creanger.api.SupabaseAuthClient;
 import com.creanger.app.messenger.creanger.data.ChatRepository;
 import com.creanger.app.messenger.creanger.data.CreangerChatBridge;
 import com.creanger.app.messenger.creanger.data.CreangerChatHeader;
+import com.creanger.app.messenger.creanger.data.CreangerDialogList;
 import com.creanger.app.messenger.creanger.data.CreangerMessageAsync;
 import com.creanger.app.messenger.creanger.data.CreangerMessageObjectAdapter;
 import com.creanger.app.messenger.creanger.data.CreangerMessageUiModel;
@@ -840,6 +842,7 @@ public class ChatActivity extends BaseFragment implements
     // Close-friends header item (direct Creanger chats only): peer id + current
     // membership, resolved in the background; the sub-item is created lazily.
     private String creangerCloseFriendPeerId;
+    private String creangerCloseFriendPeerName;
     private boolean creangerCloseFriendAdded;
     private ActionBarMenuItem.Item creangerCloseFriendItem;
     private CreangerMessageAsync creangerMessageAsync;
@@ -14376,6 +14379,7 @@ public class ChatActivity extends BaseFragment implements
         final String ownerId = creangerOwnerId;
         Utilities.globalQueue.postRunnable(() -> {
             String peerId = null;
+            String resolvedPeerName = null;
             boolean added = false;
             try {
                 CreangerAuth auth = CreangerAuth.getInstance(ApplicationLoader.applicationContext);
@@ -14399,17 +14403,34 @@ public class ChatActivity extends BaseFragment implements
                 }
                 java.util.List<String> audience = auth.getMessageRepository().listCloseFriendIds();
                 added = audience != null && audience.contains(peerId);
+                String peerName = null;
+                try {
+                    SupabaseAuthClient.ProfileRow row = auth.getEngine().getPeerProfile(peerId);
+                    if (row != null) {
+                        peerName = CreangerDialogList.peerDisplayName(row);
+                        if (peerName == null) {
+                            String username = CreangerDialogList.peerUsername(row);
+                            if (username != null) {
+                                peerName = "@" + username;
+                            }
+                        }
+                    }
+                } catch (Exception ignore) {
+                }
+                resolvedPeerName = peerName;
             } catch (Exception ignore) {
                 AndroidUtilities.runOnUIThread(this::hideCreangerCloseFriendItem);
                 return;
             }
             final String resolvedPeerId = peerId;
             final boolean resolvedAdded = added;
+            final String resolvedName = resolvedPeerName;
             AndroidUtilities.runOnUIThread(() -> {
                 if (!isCreangerChat || !chatId.equals(creangerChatId)) {
                     return;
                 }
                 creangerCloseFriendPeerId = resolvedPeerId;
+                creangerCloseFriendPeerName = resolvedName;
                 creangerCloseFriendAdded = resolvedAdded;
                 if (headerItem == null) {
                     return;
@@ -14429,6 +14450,7 @@ public class ChatActivity extends BaseFragment implements
 
     private void hideCreangerCloseFriendItem() {
         creangerCloseFriendPeerId = null;
+        creangerCloseFriendPeerName = null;
         if (creangerCloseFriendItem != null) {
             creangerCloseFriendItem.setVisibility(View.GONE);
         }
@@ -14441,14 +14463,19 @@ public class ChatActivity extends BaseFragment implements
         }
         final String peerId = creangerCloseFriendPeerId;
         final boolean remove = creangerCloseFriendAdded;
+        final String who = creangerCloseFriendPeerName != null ? creangerCloseFriendPeerName : "This chat";
         CreangerMessageAsync.Callback<Void> cb = new CreangerMessageAsync.Callback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 AndroidUtilities.runOnUIThread(() -> {
                     Context ctx = getParentActivity();
                     if (ctx != null) {
-                        Toast.makeText(ctx, remove ? "Removed from Close Friends" : "Added to Close Friends",
-                                Toast.LENGTH_SHORT).show();
+                        AlertDialog.Builder builder = new AlertDialog.Builder(ctx);
+                        builder.setTitle("Close Friends");
+                        builder.setMessage(who + (remove ? " removed from Close Friends"
+                                : " added to Close Friends"));
+                        builder.setPositiveButton(LocaleController.getString(R.string.OK), null);
+                        builder.show();
                     }
                     checkCreangerCloseFriendItem();
                 });
@@ -14459,7 +14486,11 @@ public class ChatActivity extends BaseFragment implements
                 AndroidUtilities.runOnUIThread(() -> {
                     Context ctx = getParentActivity();
                     if (ctx != null) {
-                        Toast.makeText(ctx, "Close friends update failed", Toast.LENGTH_SHORT).show();
+                        AlertDialog.Builder builder = new AlertDialog.Builder(ctx);
+                        builder.setTitle("Close Friends");
+                        builder.setMessage("Close friends update failed");
+                        builder.setPositiveButton(LocaleController.getString(R.string.OK), null);
+                        builder.show();
                     }
                 });
             }

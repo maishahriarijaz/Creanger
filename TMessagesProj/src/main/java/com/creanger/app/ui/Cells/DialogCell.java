@@ -1395,7 +1395,7 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                 }
             }
 
-            timeString = LocaleController.stringForMessageListDate(customDialog.date);
+            timeString = customDialog.date == 0 ? "" : LocaleController.stringForMessageListDate(customDialog.date);
 
             if (customDialog.unread_count != 0) {
                 drawCount = true;

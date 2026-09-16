@@ -158,6 +158,16 @@ public class CreangerDialogListTest {
     }
 
     @Test
+    public void rowMessageTextFlattensAndTruncates() {
+        assertEquals("hi there", CreangerDialogList.rowMessageText("hi\nthere"));
+        assertEquals("", CreangerDialogList.rowMessageText(null));
+        assertEquals("", CreangerDialogList.rowMessageText("null"));
+        String longText = new String(new char[200]).replace('\0', 'a');
+        assertEquals(150, CreangerDialogList.rowMessageText(longText).length());
+        assertEquals("hi", CreangerDialogList.rowMessageText("  hi  "));
+    }
+
+    @Test
     public void unreadBadgeRules() {
         assertFalse(CreangerDialogList.shouldShowUnread(0));
         assertTrue(CreangerDialogList.shouldShowUnread(3));
@@ -178,7 +188,12 @@ public class CreangerDialogListTest {
 
     private static CreangerMessage msg(String id, String senderId, String content,
                                        String createdAt, String deletedAt) {
-        return new CreangerMessage(id, "c1", senderId, "text", content, "delivered",
+        return msgWithStatus(id, senderId, content, createdAt, deletedAt, "delivered");
+    }
+
+    private static CreangerMessage msgWithStatus(String id, String senderId, String content,
+                                                String createdAt, String deletedAt, String status) {
+        return new CreangerMessage(id, "c1", senderId, "text", content, status,
                 null, 1L, createdAt, null, deletedAt, null, null, false);
     }
 
@@ -211,17 +226,38 @@ public class CreangerDialogListTest {
     }
 
     @Test
-    public void unreadCountsInboundNewerThanLastRead() {
+    public void unreadCountsKnownNonReadStatusesRegardlessOfLastRead() {
         List<CreangerMessage> messages = new ArrayList<>();
         messages.add(msg("m3", "peer", "newest", "2026-09-15T11:00:00Z", null));
         messages.add(msg("m2", "me", "mine", "2026-09-15T10:50:00Z", null));
         messages.add(msg("m1", "peer", "old", "2026-09-15T10:00:00Z", null));
-        assertEquals(1, CreangerDialogList.unreadCount(messages, "me", "2026-09-15T10:30:00Z"));
-        assertEquals(0, CreangerDialogList.unreadCount(messages, "me", "2026-09-15T12:00:00Z"));
-        // Never marked read: every inbound message counts.
+        // Delivered-but-not-read stays unread even past a (stale) lastReadAt.
+        assertEquals(2, CreangerDialogList.unreadCount(messages, "me", "2026-09-15T10:30:00Z"));
+        assertEquals(2, CreangerDialogList.unreadCount(messages, "me", "2026-09-15T12:00:00Z"));
         assertEquals(2, CreangerDialogList.unreadCount(messages, "me", null));
         assertEquals(0, CreangerDialogList.unreadCount(null, "me", null));
         assertEquals(0, CreangerDialogList.unreadCount(new ArrayList<CreangerMessage>(), "me", null));
+    }
+
+    @Test
+    public void unreadReadStatusClearsBadge() {
+        // Opening the chat advances inbound rows to READ via
+        // mark_message_status — the badge must clear even with no lastReadAt.
+        List<CreangerMessage> messages = new ArrayList<>();
+        messages.add(msgWithStatus("m3", "peer", "newest", "2026-09-15T11:00:00Z", null, "read"));
+        messages.add(msgWithStatus("m1", "peer", "old", "2026-09-15T10:00:00Z", null, "read"));
+        assertEquals(0, CreangerDialogList.unreadCount(messages, "me", null));
+        assertEquals(0, CreangerDialogList.unreadCount(messages, "me", "2026-09-15T09:00:00Z"));
+    }
+
+    @Test
+    public void unreadNullStatusFallsBackToLastRead() {
+        List<CreangerMessage> messages = new ArrayList<>();
+        messages.add(msgWithStatus("m3", "peer", "newest", "2026-09-15T11:00:00Z", null, null));
+        messages.add(msgWithStatus("m1", "peer", "old", "2026-09-15T10:00:00Z", null, null));
+        assertEquals(1, CreangerDialogList.unreadCount(messages, "me", "2026-09-15T10:30:00Z"));
+        assertEquals(0, CreangerDialogList.unreadCount(messages, "me", "2026-09-15T12:00:00Z"));
+        assertEquals(2, CreangerDialogList.unreadCount(messages, "me", null));
     }
 
     @Test
@@ -247,6 +283,7 @@ public class CreangerDialogListTest {
         assertFalse(row.muted);
         assertFalse(row.out);
         assertEquals("Bob", row.senderName);
+        assertEquals("delivered", row.latestStatus);
     }
 
     @Test
@@ -261,12 +298,14 @@ public class CreangerDialogListTest {
         assertEquals(0, row.unreadCount);
         assertFalse(row.pinned);
         assertFalse(row.muted);
+        assertEquals("delivered", row.latestStatus);
 
         CreangerDialogList.RowState empty = CreangerDialogList.rowStateFor(
                 chat("c1", "direct", null, null, null), null, "me", null, null, 0L);
         assertEquals("", empty.lastMessage);
         assertEquals(0, empty.lastMessageDateSec);
         assertEquals(0, empty.unreadCount);
+        assertNull(empty.latestStatus);
         assertNull(CreangerDialogList.latestVisible(null));
     }
 }

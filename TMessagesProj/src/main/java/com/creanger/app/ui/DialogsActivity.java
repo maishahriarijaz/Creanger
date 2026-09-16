@@ -111,7 +111,6 @@ import com.creanger.app.messenger.creanger.data.ChatRepository;
 import com.creanger.app.messenger.creanger.data.CreangerChatHeader;
 import com.creanger.app.messenger.creanger.data.CreangerDialogList;
 import com.creanger.app.messenger.creanger.model.ChatModels.CreangerChat;
-import com.creanger.app.ui.Cells.CreangerDialogCell;
 import com.creanger.app.messenger.DialogObject;
 import com.creanger.app.messenger.Emoji;
 import com.creanger.app.messenger.FileLoader;
@@ -2082,6 +2081,14 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
             if (!onlySelect && parentPage.isDefaultDialogType() && slidingView == null && viewHolder.itemView instanceof DialogCell) {
                 DialogCell dialogCell = (DialogCell) viewHolder.itemView;
+                // Creanger rows render in native DialogCells but live outside
+                // the MTProto dialog tables: no swipe actions apply to them.
+                try {
+                    if (parentPage.dialogsAdapter.getItem(viewHolder.getAdapterPosition()) instanceof CreangerChat) {
+                        return 0;
+                    }
+                } catch (Exception ignore) {
+                }
                 long dialogId = dialogCell.getDialogId();
                 if (actionBar.isActionModeShowed(null)) {
                     TLRPC.Dialog dialog = getMessagesController().dialogs_dict.get(dialogId);
@@ -6256,7 +6263,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     }
                 }
                 if (searchViewPager != null && searchViewPager.dialogsSearchAdapter != null) {
-                    searchViewPager.dialogsSearchAdapter.setCreangerSearchChats(chats, peers);
+                    searchViewPager.dialogsSearchAdapter.setCreangerSearchChats(chats, peers, rows);
                 }
             });
         });
@@ -7199,7 +7206,10 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         if (getParentActivity() == null || view instanceof DialogsHintCell) {
             return false;
         }
-        if (view instanceof CreangerDialogCell) {
+        // Creanger rows now use the native DialogCell view: keep them out of
+        // the native preview/menu paths by item type instead of view type.
+        if (adapter instanceof DialogsAdapter && ((DialogsAdapter) adapter).getItem(position) instanceof CreangerChat
+                || adapter instanceof DialogsSearchAdapter && ((DialogsSearchAdapter) adapter).getItem(position) instanceof CreangerChat) {
             return false;
         }
         if (adapter.getItemViewType(position) == DialogsAdapter.VIEW_TYPE_FORWARD_TO_STORIES_CELL) {
@@ -11441,7 +11451,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         // includes Creanger chats from the first query.
         if (BuildConfig.USE_CREANGER_AUTH && lastCreangerChats != null
                 && searchViewPager.dialogsSearchAdapter != null) {
-            searchViewPager.dialogsSearchAdapter.setCreangerSearchChats(lastCreangerChats, lastCreangerPeers);
+            searchViewPager.dialogsSearchAdapter.setCreangerSearchChats(lastCreangerChats, lastCreangerPeers, lastCreangerRows);
         }
 
         searchViewPager.dialogsSearchAdapter.setDelegate(new DialogsSearchAdapter.DialogsSearchAdapterDelegate() {

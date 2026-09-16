@@ -38,7 +38,7 @@ import androidx.viewpager.widget.ViewPager;
 import com.creanger.app.messenger.AndroidUtilities;
 import com.creanger.app.messenger.creanger.data.CreangerDialogList;
 import com.creanger.app.messenger.creanger.model.ChatModels.CreangerChat;
-import com.creanger.app.ui.Cells.CreangerDialogCell;
+import com.creanger.app.messenger.creanger.model.MessageModels.MessageStatus;
 import com.creanger.app.messenger.BuildVars;
 import com.creanger.app.messenger.ChatObject;
 import com.creanger.app.messenger.ContactsController;
@@ -174,6 +174,47 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
         creangerPeers = peers != null ? new java.util.HashMap<>(peers) : new java.util.HashMap<>();
         creangerRows = rows != null ? new java.util.HashMap<>(rows) : new java.util.HashMap<>();
         updateList(null);
+    }
+
+    /**
+     * Builds the stock {@link DialogCell.CustomDialog} for one Creanger chat
+     * so Creanger rows render through the exact native dialog path (avatar,
+     * ticks, badge, pin, mute, separators). {@code peerName}/{@code
+     * peerUsername} are the resolved direct-chat peer identity (may be null);
+     * {@code row} is the per-chat row state (may be null — falls back to the
+     * title/subtitle text with no date, badge or ticks).
+     */
+    public static DialogCell.CustomDialog customDialogFor(CreangerChat chat, String peerName,
+                                                          String peerUsername, CreangerDialogList.RowState row) {
+        DialogCell.CustomDialog custom = new DialogCell.CustomDialog();
+        custom.name = CreangerDialogList.titleFor(chat, peerName, peerUsername);
+        String content = row != null ? row.lastMessage : "";
+        if (content == null || content.isEmpty()) {
+            custom.message = CreangerDialogList.subtitleFor(chat, peerName, peerUsername);
+            custom.date = 0;
+        } else {
+            custom.message = CreangerDialogList.rowMessageText(content);
+            custom.date = row.lastMessageDateSec;
+        }
+        custom.id = (int) CreangerDialogList.stableId(chat != null ? chat.id : null);
+        custom.unread_count = row != null ? row.unreadCount : 0;
+        custom.pinned = row != null && row.pinned;
+        custom.muted = row != null && row.muted;
+        custom.verified = false;
+        custom.isMedia = false;
+        custom.type = 0;
+        if (row != null && row.out && row.latestStatus != null) {
+            if (MessageStatus.PENDING.equals(row.latestStatus)) {
+                custom.sent = DialogCell.SENT_STATE_PROGRESS;
+            } else if (MessageStatus.rank(row.latestStatus) >= MessageStatus.rank(MessageStatus.READ)) {
+                custom.sent = DialogCell.SENT_STATE_READ;
+            } else {
+                custom.sent = DialogCell.SENT_STATE_SENT;
+            }
+        } else {
+            custom.sent = DialogCell.SENT_STATE_NOTHING;
+        }
+        return custom;
     }
 
     private Drawable arrowDrawable;
@@ -691,7 +732,7 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
         View view;
         switch (viewType) {
             case VIEW_TYPE_CREANGER_CHAT:
-                view = new CreangerDialogCell(mContext);
+                view = new DialogCell(parentFragment, mContext, true, false, currentAccount, null);
                 break;
             case VIEW_TYPE_DIALOG_COMMUNITY:
                 DialogCell dialogCell2 = new DialogCell(parentFragment, mContext, true, false, currentAccount, null);
@@ -939,21 +980,17 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
         switch (holder.getItemViewType()) {
             case VIEW_TYPE_CREANGER_CHAT: {
                 Object item = getItem(i);
-                CreangerDialogCell cell = (CreangerDialogCell) holder.itemView;
+                DialogCell cell = (DialogCell) holder.itemView;
                 if (item instanceof CreangerChat) {
                     CreangerChat chat = (CreangerChat) item;
                     String[] peer = chat != null ? creangerPeers.get(chat.id) : null;
                     String peerName = peer != null ? peer[0] : null;
                     String peerUsername = peer != null && peer.length > 1 ? peer[1] : null;
                     CreangerDialogList.RowState row = chat != null ? creangerRows.get(chat.id) : null;
-                    if (row != null) {
-                        cell.bindFull(chat, peerName, peerUsername,
-                                row.lastMessage, row.lastMessageDateSec, row.unreadCount,
-                                row.pinned, row.muted, row.out, row.senderName,
-                                chat.isDirect(), System.currentTimeMillis() / 1000);
-                    } else {
-                        cell.bind(chat, peerName, peerUsername);
-                    }
+                    cell.setDialog(customDialogFor(chat, peerName, peerUsername, row));
+                    Object next = getItem(i + 1);
+                    cell.useSeparator = next != null;
+                    cell.fullSeparator = row != null && row.pinned && next != null;
                 }
                 break;
             }            case VIEW_TYPE_FORWARD_TO_STORIES_CELL: {
