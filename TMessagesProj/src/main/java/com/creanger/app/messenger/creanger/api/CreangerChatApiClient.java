@@ -1226,6 +1226,135 @@ public class CreangerChatApiClient {
         return parseArray(body);
     }
 
+    // ---- migration 040: bulk delete / document search / preview / close friends ----
+
+    /**
+     * Bulk soft-deletes own messages via bulk_delete_messages (040).
+     * Server-side author check: only own rows are deleted. Returns deleted ids.
+     */
+    public List<String> bulkDeleteMessages(String accessToken, List<String> messageIds)
+            throws IOException, CreangerApiException {
+        List<String> out = new ArrayList<>();
+        if (messageIds == null || messageIds.isEmpty()) {
+            return out;
+        }
+        JSONObject args = new JSONObject();
+        try {
+            JSONArray arr = new JSONArray();
+            for (String id : messageIds) {
+                if (id != null) {
+                    arr.put(id);
+                }
+            }
+            args.put("p_message_ids", arr);
+        } catch (JSONException e) {
+            throw new CreangerApiException(200, new ApiError(ApiError.INTERNAL_ERROR,
+                    "malformed bulk delete args", null, 0));
+        }
+        String body = executeJson("/rest/v1/rpc/bulk_delete_messages", args, accessToken);
+        try {
+            Object value = new org.json.JSONTokener(body == null ? "" : body.trim()).nextValue();
+            if (value instanceof JSONArray) {
+                JSONArray rows = (JSONArray) value;
+                for (int i = 0; i < rows.length(); i++) {
+                    String id = rows.optString(i, null);
+                    if (id != null && !"null".equals(id)) {
+                        out.add(id);
+                    }
+                }
+            } else if (value instanceof String) {
+                out.add((String) value);
+            }
+        } catch (JSONException e) {
+            throw new CreangerApiException(200, new ApiError(ApiError.INTERNAL_ERROR,
+                    "malformed bulk delete response", null, 0));
+        }
+        return out;
+    }
+
+    /**
+     * Document-scoped search via search_documents_in_chat (040).
+     * Filters media messages by text; membership-gated server-side.
+     */
+    public List<CreangerMessage> searchDocumentsInChat(String accessToken, String chatId,
+                                                      String query, int limit)
+            throws IOException, CreangerApiException {
+        JSONObject args = new JSONObject();
+        try {
+            args.put("p_chat_id", chatId);
+            args.put("p_search_query", query != null ? query : "");
+            args.put("p_limit", limit);
+        } catch (JSONException e) {
+            throw new CreangerApiException(200, new ApiError(ApiError.INTERNAL_ERROR,
+                    "malformed rpc args", null, 0));
+        }
+        String body = executeJson("/rest/v1/rpc/search_documents_in_chat", args, accessToken);
+        List<CreangerMessage> out = new ArrayList<>();
+        JSONArray rows = parseArray(body);
+        for (int i = 0; i < rows.length(); i++) {
+            out.add(parseMessage(rows.optJSONObject(i)));
+        }
+        return out;
+    }
+
+    /**
+     * Recent media for chat-list document preview via get_recent_media (040).
+     */
+    public List<CreangerDocumentPreview.RecentMedia> getRecentMedia(String accessToken,
+                                                                   String chatId, int limit)
+            throws IOException, CreangerApiException {
+        JSONObject args = new JSONObject();
+        try {
+            args.put("p_chat_id", chatId);
+            args.put("p_limit", limit <= 0 ? 4 : limit);
+        } catch (JSONException e) {
+            throw new CreangerApiException(200, new ApiError(ApiError.INTERNAL_ERROR,
+                    "malformed rpc args", null, 0));
+        }
+        String body = executeJson("/rest/v1/rpc/get_recent_media", args, accessToken);
+        List<CreangerDocumentPreview.RecentMedia> out = new ArrayList<>();
+        JSONArray rows = parseArray(body);
+        for (int i = 0; i < rows.length(); i++) {
+            JSONObject o = rows.optJSONObject(i);
+            if (o == null) {
+                continue;
+            }
+            out.add(new CreangerDocumentPreview.RecentMedia(
+                    nullIfEmpty(o.optString("message_id", null)),
+                    nullIfEmpty(o.optString("public_url", null)),
+                    nullIfEmpty(o.optString("thumbnail_url", null)),
+                    nullIfEmpty(o.optString("mime_type", null)),
+                    nullIfEmpty(o.optString("created_at", null))));
+        }
+        return out;
+    }
+
+    /** Adds a user to the caller's close-friends audience (040). */
+    public void addCloseFriend(String accessToken, String friendId)
+            throws IOException, CreangerApiException {
+        JSONObject args = new JSONObject();
+        try {
+            args.put("p_friend_id", friendId);
+        } catch (JSONException e) {
+            throw new CreangerApiException(200, new ApiError(ApiError.INTERNAL_ERROR,
+                    "malformed rpc args", null, 0));
+        }
+        executeJson("/rest/v1/rpc/add_close_friend", args, accessToken);
+    }
+
+    /** Removes a user from the caller's close-friends audience (040). */
+    public void removeCloseFriend(String accessToken, String friendId)
+            throws IOException, CreangerApiException {
+        JSONObject args = new JSONObject();
+        try {
+            args.put("p_friend_id", friendId);
+        } catch (JSONException e) {
+            throw new CreangerApiException(200, new ApiError(ApiError.INTERNAL_ERROR,
+                    "malformed rpc args", null, 0));
+        }
+        executeJson("/rest/v1/rpc/remove_close_friend", args, accessToken);
+    }
+
     // ---- execution ----
 
     private String executeList(String path, Map<String, String> query, String accessToken)
