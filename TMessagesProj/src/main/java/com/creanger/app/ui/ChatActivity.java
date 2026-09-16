@@ -855,6 +855,11 @@ public class ChatActivity extends BaseFragment implements
     private MessageRealtimeClient creangerRealtimeClient;
     /** Live realtime latency pill under the action bar (Creanger chats only). */
     private CreangerLatencyBadgeView creangerLatencyBadge;
+    /** Own + peer presence for the open Creanger chat (migration 036 wiring). */
+    private com.creanger.app.messenger.creanger.data.CreangerPresenceController creangerPresenceController;
+    /** Peer presence state for the header subtitle. */
+    private String creangerPeerPresenceStatus;
+    private long creangerPeerLastSeenMs;
     private final MediaController.VoiceMessageSendInterceptor creangerVoiceSendInterceptor = (
             long dialogId, String audioPath, long durationMs, String mimeType,
             MessageObject replyToMsg, boolean notify) -> {
@@ -3379,6 +3384,13 @@ public class ChatActivity extends BaseFragment implements
         }
         if (creangerLatencyBadge != null) {
             creangerLatencyBadge.reset();
+        }
+        if (creangerPresenceController != null) {
+            try {
+                creangerPresenceController.destroy();
+            } catch (Exception ignored) {
+            }
+            creangerPresenceController = null;
         }
         if (messageMetricsView != null) {
             messageMetricsView.finish();
@@ -13881,6 +13893,79 @@ public class ChatActivity extends BaseFragment implements
         }
     }
 
+    // ---- Creanger presence (migration 036) ----
+
+    /**
+     * Starts the presence controller for the open chat: pushes own online,
+     * fetches the peer row, and renders the header subtitle. A no-op when the
+     * peer id is unknown (group chats where the peer model is not a 1:1).
+     */
+    private void startCreangerPresence() {
+        if (!isCreangerChat || creangerChatId == null || creangerPresenceController != null) {
+            return;
+        }
+        CreangerAuth auth = CreangerAuth.getInstance(ApplicationLoader.applicationContext);
+        if (auth == null) {
+            return;
+        }
+        final String peerId = creangerResolvePeerId();
+        if (peerId == null) {
+            return;
+        }
+        creangerPresenceController = new com.creanger.app.messenger.creanger.data.CreangerPresenceController(
+                auth.getChatApiClient(),
+                () -> auth.getEngine().requireAccessToken(),
+                AndroidUtilities::runOnUIThread,
+                (chatId, peer, status, lastSeen) -> {
+                    if (!chatId.equals(creangerChatId)) {
+                        return;
+                    }
+                    creangerPeerPresenceStatus = status;
+                    creangerPeerLastSeenMs = lastSeen;
+                    creangerUpdateTypingSubtitle();
+                });
+        creangerPresenceController.onChatOpened(creangerChatId, peerId);
+    }
+
+    /** Resolves the 1:1 peer's Creanger UUID from the cached members. */
+    private String creangerResolvePeerId() {
+        if (creangerChatId == null || creangerOwnerId == null) {
+            return null;
+        }
+        try {
+            CreangerAuth auth = CreangerAuth.getInstance(ApplicationLoader.applicationContext);
+            if (auth == null) {
+                return null;
+            }
+            java.util.List<ChatMember> members = auth.getChatRepository().getCachedMembers(creangerChatId);
+            return com.creanger.app.messenger.creanger.data.CreangerChatHeader.peerUserId(members, creangerOwnerId);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Presence/typing-aware header subtitle for the open Creanger chat. */
+    private void creangerUpdateHeaderSubtitle() {
+        if (!isCreangerChat || avatarContainer == null) {
+            return;
+        }
+        if (creangerTypingUserId != null) {
+            creangerUpdateTypingSubtitle();
+            return;
+        }
+        String subtitle = com.creanger.app.messenger.creanger.CreangerPresence.subtitleFor(
+                false, creangerPeerPresenceStatus, creangerPeerLastSeenMs, System.currentTimeMillis());
+        if (subtitle != null) {
+            View subtitleView = avatarContainer.getSubtitleTextView();
+            if (subtitleView != null) {
+                subtitleView.setVisibility(View.VISIBLE);
+            }
+            avatarContainer.setSubtitle(subtitle);
+        } else {
+            updateTitle(false);
+        }
+    }
+
     // ---- Creanger typing indicators ----
 
     /**
@@ -13945,7 +14030,9 @@ public class ChatActivity extends BaseFragment implements
             }
             avatarContainer.setSubtitle(LocaleController.getString(R.string.Typing));
         } else {
-            updateTitle(false);
+            // Typing cleared: fall back to the presence subtitle (online /
+            // last seen) when known, else the plain title.
+            creangerUpdateHeaderSubtitle();
         }
     }
 
@@ -31344,6 +31431,7 @@ private ArrayList<MessageObject> notPushedSponsoredMessages;
             if (creangerLatencyBadge != null) {
                 creangerLatencyBadge.onForegroundCheck();
             }
+            startCreangerPresence();
         }
         checkRaiseSensors();
         if (chatAttachAlert != null) {
@@ -31556,6 +31644,9 @@ private ArrayList<MessageObject> notPushedSponsoredMessages;
         MediaController.getInstance().stopRaiseToEarSensors(this, true, true);
         if (isCreangerChat) {
             MediaController.getInstance().setVoiceMessageSendInterceptor(null);
+            if (creangerPresenceController != null) {
+                creangerPresenceController.onChatPaused();
+            }
         }
         paused = true;
         wasPaused = true;

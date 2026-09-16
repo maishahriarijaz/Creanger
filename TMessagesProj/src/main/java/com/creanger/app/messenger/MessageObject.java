@@ -11411,6 +11411,13 @@ public class MessageObject {
     }
 
     public boolean canForwardMessage() {
+        if (messageOwner != null && messageOwner.params != null
+                && messageOwner.params.containsKey("creanger_uuid")) {
+            // Creanger messages have no MTProto forward path by design (Phase C);
+            // the model-level false makes the block unit-proof against future
+            // UI entry points instead of relying on every route guard.
+            return false;
+        }
         if (isQuickReply() || isEphemeral()) return false;
         if (type == TYPE_GIFT_STARS || type == TYPE_GIFT_THEME_UPDATE || type == TYPE_SUGGEST_BIRTHDAY || type == TYPE_GIFT_OFFER || type == TYPE_SHARING_OFFER || type == TYPE_COMMUNITY_CHANGED) return false;
         return !(messageOwner instanceof TLRPC.TL_message_secret) && !needDrawBluredPreview() && !isLiveLocation() && type != MessageObject.TYPE_PHONE_CALL && !isSponsored() && !messageOwner.noforwards;
