@@ -80,4 +80,78 @@ public class SocketMessageRealtimeTransportTest {
         // exactly {messages, message_reactions} x {INSERT, UPDATE, DELETE}.
         assertEquals(6, subscribedPairs().size());
     }
+
+    @Test
+    public void closeBeforeConnectIsSafeAndIdempotent() throws Exception {
+        SocketMessageRealtimeTransport t = new SocketMessageRealtimeTransport(
+                "ws://127.0.0.1:9/realtime/v1/websocket?vsn=1.0.0");
+        t.close();
+        t.close();
+        // Closed transport drops broadcasts silently instead of throwing.
+        t.sendBroadcast("typing", "{}");
+    }
+
+    /**
+     * Regression: leaving a Creanger chat calls close() on the main thread
+     * (ChatActivity.onFragmentDestroy). A TLS socket close can flush/block,
+     * which used to throw NetworkOnMainThreadException and FATAL-crash the
+     * app. close() must therefore return promptly with state updated
+     * synchronously while the socket itself is released in the background.
+     */
+    @Test(timeout = 30000)
+    public void closeReturnsPromptlyOnLiveConnection() throws Exception {
+        final java.net.ServerSocket server = new java.net.ServerSocket(0);
+        final int port = server.getLocalPort();
+        Thread accepter = new Thread(() -> {
+            try {
+                java.net.Socket s = server.accept();
+                java.io.InputStream in = s.getInputStream();
+                // Consume the HTTP Upgrade request head.
+                int state = 0;
+                while (state < 4) {
+                    int b = in.read();
+                    if (b == -1) {
+                        s.close();
+                        return;
+                    }
+                    if (b == '\r' || b == '\n') {
+                        state++;
+                    } else {
+                        state = 0;
+                    }
+                }
+                String response = "HTTP/1.1 101 Switching Protocols\r\n"
+                        + "Upgrade: websocket\r\n"
+                        + "Connection: Upgrade\r\n"
+                        + "Sec-WebSocket-Accept: test\r\n\r\n";
+                s.getOutputStream().write(response.getBytes("UTF-8"));
+                s.getOutputStream().flush();
+                // Hold the connection open: the reader blocks in read().
+                Thread.sleep(15000);
+                s.close();
+            } catch (Exception ignored) {
+            }
+        });
+        accepter.setDaemon(true);
+        accepter.start();
+        try {
+            SocketMessageRealtimeTransport t = new SocketMessageRealtimeTransport(
+                    "ws://127.0.0.1:" + port + "/realtime/v1/websocket?vsn=1.0.0");
+            t.connect("test-token");
+            long startMs = System.currentTimeMillis();
+            t.close();
+            long elapsedMs = System.currentTimeMillis() - startMs;
+            // Synchronous state flip + background socket release: must not
+            // block on network I/O (loopback close is fast, but the contract
+            // is prompt return regardless of socket behavior).
+            assertTrue("close() blocked " + elapsedMs + "ms", elapsedMs < 5000);
+            t.close();
+            t.sendBroadcast("typing", "{}");
+        } finally {
+            try {
+                server.close();
+            } catch (Exception ignored) {
+            }
+        }
+    }
 }

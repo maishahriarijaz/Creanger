@@ -158,6 +158,15 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
         }
     }
 
+    /**
+     * Marks the transport closed, stops the reader and releases the socket.
+     * Safe to call from any thread (including the Android main thread during
+     * fragment teardown): the socket itself is always closed on a background
+     * daemon thread because a TLS {@code close()} can flush/block and would
+     * otherwise throw {@code NetworkOnMainThreadException}. State (closed
+     * flag, streams) is updated synchronously so readers/senders observe the
+     * close immediately.
+     */
     @Override
     public void close() {
         closed = true;
@@ -165,16 +174,22 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
             readerExecutor.shutdownNow();
             readerExecutor = null;
         }
-        Socket s = socket;
+        final Socket s = socket;
         socket = null;
-        if (s != null) {
-            try {
-                s.close();
-            } catch (IOException ignored) {
-            }
-        }
         output = null;
         input = null;
+        if (s != null) {
+            Thread t = new Thread(() -> closeQuietly(s), "creanger-realtime-close");
+            t.setDaemon(true);
+            t.start();
+        }
+    }
+
+    private static void closeQuietly(Socket s) {
+        try {
+            s.close();
+        } catch (IOException ignored) {
+        }
     }
 
     // ---- internals ----

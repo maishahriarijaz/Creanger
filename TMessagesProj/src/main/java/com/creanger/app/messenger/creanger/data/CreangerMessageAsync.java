@@ -550,6 +550,40 @@ public final class CreangerMessageAsync {
         run(() -> bridge.completeDelete(chatId, messageId), cb);
     }
 
+    public void bulkDeleteMessages(String chatId, List<String> messageIds,
+                                   Callback<List<String>> cb) {
+        // Optimistic: every cached row disappears on the calling (UI) thread
+        // immediately; the single atomic bulk RPC runs on the worker.
+        if (messageIds != null) {
+            for (String id : messageIds) {
+                bridge.applyOptimisticDelete(chatId, id);
+            }
+        }
+        run(() -> bridge.completeBulkDelete(chatId, messageIds), cb);
+    }
+
+    // ========================================================================
+    // Close friends (migration 040 audience list)
+    // ========================================================================
+
+    public void listCloseFriendIds(Callback<List<String>> cb) {
+        run(() -> bridge.listCloseFriendIds(), cb);
+    }
+
+    public void addCloseFriend(String friendId, Callback<Void> cb) {
+        run(() -> {
+            bridge.addCloseFriend(friendId);
+            return null;
+        }, cb);
+    }
+
+    public void removeCloseFriend(String friendId, Callback<Void> cb) {
+        run(() -> {
+            bridge.removeCloseFriend(friendId);
+            return null;
+        }, cb);
+    }
+
     // ========================================================================
     // Message status
     // ========================================================================

@@ -856,4 +856,122 @@ public class CreangerMessageAsyncTest {
         assertEquals("video/mp4", filled.attachments.get(0).mimeType);
         assertEquals(Integer.valueOf(1920), filled.attachments.get(0).width);
     }
+
+    // ---- bulk delete (migration 040) + close friends ----
+
+    private static CreangerMessageAsync.Callback<Void> markDone(
+            AtomicReference<String> done, String value) {
+        return new CreangerMessageAsync.Callback<Void>() {
+            @Override
+            public void onSuccess(Void result) {
+                done.set(value);
+                synchronized (done) {
+                    done.notifyAll();
+                }
+            }
+
+            @Override
+            public void onError(CreangerApiException error, Throwable ioError) {
+                done.set("error:" + value);
+                synchronized (done) {
+                    done.notifyAll();
+                }
+            }
+        };
+    }
+
+    @Test
+    public void bulkDeleteRemovesAllAndConfirmsInOneRpc() throws Exception {
+        ScriptedTransport t = new ScriptedTransport();
+        InMemoryStore store = new InMemoryStore();
+        t.responses.add(t.json(200, rowsJson(
+                msgRow("m-2", 2, "second", "2026-08-15T08:02:00Z"),
+                msgRow("m-1", 1, "first", "2026-08-15T08:01:00Z"))));
+        t.responses.add(t.json(200, "[\"m-1\",\"m-2\"]"));
+        AtomicReference<MessagePage> page = new AtomicReference<>();
+        AtomicReference<Throwable> pageErr = new AtomicReference<>();
+        AtomicReference<List<String>> out = new AtomicReference<>();
+        AtomicReference<Throwable> err = new AtomicReference<>();
+        CreangerMessageAsync async = async(t, store);
+
+        async.refreshMessages("chat-1", 30, capture(page, pageErr));
+        await(page);
+        assertNull(pageErr.get());
+        assertEquals(2, async.getMessages("chat-1").size());
+
+        List<String> ids = new ArrayList<>();
+        ids.add("m-1");
+        ids.add("m-2");
+        async.bulkDeleteMessages("chat-1", ids, capture(out, err));
+        await(out);
+
+        assertNull(err.get());
+        assertNotNull(out.get());
+        assertEquals(2, out.get().size());
+        assertTrue(async.getMessages("chat-1").isEmpty());
+        assertTrue(t.requests.get(t.requests.size() - 1).path.contains("bulk_delete_messages"));
+    }
+
+    @Test
+    public void bulkDeleteFailureRestoresRows() throws Exception {
+        ScriptedTransport t = new ScriptedTransport();
+        InMemoryStore store = new InMemoryStore();
+        t.responses.add(t.json(200, rowsJson(
+                msgRow("m-1", 1, "first", "2026-08-15T08:01:00Z"))));
+        AtomicReference<MessagePage> page = new AtomicReference<>();
+        AtomicReference<Throwable> pageErr = new AtomicReference<>();
+        AtomicReference<List<String>> out = new AtomicReference<>();
+        AtomicReference<Throwable> err = new AtomicReference<>();
+        CreangerMessageAsync async = async(t, store);
+
+        async.refreshMessages("chat-1", 30, capture(page, pageErr));
+        await(page);
+        assertNull(pageErr.get());
+
+        t.failAll = new IOException("offline");
+        List<String> ids = new ArrayList<>();
+        ids.add("m-1");
+        async.bulkDeleteMessages("chat-1", ids, capture(out, err));
+        // Failure path reports onError (bridge rolls back before propagating).
+        long deadline = System.currentTimeMillis() + 5000;
+        synchronized (out) {
+            while (err.get() == null && System.currentTimeMillis() < deadline) {
+                out.wait(100);
+            }
+        }
+        assertNotNull(err.get());
+        assertEquals(1, async.getMessages("chat-1").size());
+        assertEquals("m-1", async.getMessages("chat-1").get(0).id);
+    }
+
+    @Test
+    public void closeFriendsAddRemoveAndListHitRpc() throws Exception {
+        ScriptedTransport t = new ScriptedTransport();
+        InMemoryStore store = new InMemoryStore();
+        CreangerMessageAsync async = async(t, store);
+        t.responses.add(t.json(200, "{}"));
+        t.responses.add(t.json(200, "{}"));
+        t.responses.add(t.json(200, "[{\"friend_id\":\"f1\"}]"));
+
+        AtomicReference<String> added = new AtomicReference<>();
+        async.addCloseFriend("f1", markDone(added, "added"));
+        await(added);
+        assertEquals("added", added.get());
+        assertTrue(t.requests.get(t.requests.size() - 1).path.contains("add_close_friend"));
+
+        AtomicReference<String> removed = new AtomicReference<>();
+        async.removeCloseFriend("f1", markDone(removed, "removed"));
+        await(removed);
+        assertEquals("removed", removed.get());
+        assertTrue(t.requests.get(t.requests.size() - 1).path.contains("remove_close_friend"));
+
+        AtomicReference<List<String>> out = new AtomicReference<>();
+        AtomicReference<Throwable> err = new AtomicReference<>();
+        async.listCloseFriendIds(capture(out, err));
+        await(out);
+        assertNull(err.get());
+        assertEquals(1, out.get().size());
+        assertEquals("f1", out.get().get(0));
+        assertTrue(t.requests.get(t.requests.size() - 1).path.contains("story_close_friends"));
+    }
 }

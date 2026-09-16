@@ -420,4 +420,83 @@ public class MessageEditDeleteRepositoryTest {
         mr.rollbackEdit(CHAT, "m-1");
         assertTrue(mr.getCachedMessages(CHAT).isEmpty());
     }
+
+    // ---- bulk delete (migration 040, one atomic RPC) ----
+
+    private static void seedTwo(MessageRepository mr, ScriptedTransport t) throws Exception {
+        t.responses.add(t.json(200, rowsJson(msgRow("m-1", 1, "one"), msgRow("m-2", 2, "two"))));
+        mr.refreshMessages(CHAT, 30);
+        assertEquals(2, mr.getCachedMessages(CHAT).size());
+    }
+
+    @Test
+    public void bulkDeleteConfirmsAllInOneRpc() throws Exception {
+        InMemoryStore store = new InMemoryStore();
+        ScriptedTransport t = new ScriptedTransport();
+        MessageRepository mr = repo(t, store);
+        seedTwo(mr, t);
+
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        ids.add("m-1");
+        ids.add("m-2");
+        for (String id : ids) {
+            assertTrue(mr.applyOptimisticDelete(CHAT, id));
+        }
+        assertTrue(mr.getCachedMessages(CHAT).isEmpty());
+
+        t.responses.add(t.json(200, "[\"m-1\",\"m-2\"]"));
+        java.util.List<String> confirmed = mr.completeBulkDelete(CHAT, ids);
+        assertEquals(2, confirmed.size());
+        assertTrue(confirmed.contains("m-1"));
+        assertTrue(confirmed.contains("m-2"));
+        assertTrue(mr.getCachedMessages(CHAT).isEmpty());
+
+        ApiRequest rpc = requestFor(t.requests, "/rest/v1/rpc/bulk_delete_messages");
+        assertNotNull(rpc);
+        assertTrue(rpc.jsonBody.contains("\"p_message_ids\""));
+        assertTrue(rpc.jsonBody.contains("m-1"));
+        assertTrue(rpc.jsonBody.contains("m-2"));
+        assertFalse(rpc.jsonBody.contains("sender"));
+    }
+
+    @Test
+    public void bulkDeleteFailureRollsBackAll() throws Exception {
+        InMemoryStore store = new InMemoryStore();
+        ScriptedTransport t = new ScriptedTransport();
+        MessageRepository mr = repo(t, store);
+        seedTwo(mr, t);
+
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        ids.add("m-1");
+        ids.add("m-2");
+        for (String id : ids) {
+            mr.applyOptimisticDelete(CHAT, id);
+        }
+        assertTrue(mr.getCachedMessages(CHAT).isEmpty());
+
+        t.failAll = new IOException("offline");
+        try {
+            mr.completeBulkDelete(CHAT, ids);
+            fail("expected IOException");
+        } catch (IOException expected) {
+        }
+        for (String id : ids) {
+            mr.rollbackDelete(CHAT, id);
+        }
+        assertEquals(2, mr.getCachedMessages(CHAT).size());
+    }
+
+    @Test
+    public void bulkDeleteEmptyListSkipsNetwork() throws Exception {
+        InMemoryStore store = new InMemoryStore();
+        ScriptedTransport t = new ScriptedTransport();
+        MessageRepository mr = repo(t, store);
+        seed(mr, t, "kept");
+        int requestsAfterSeed = t.requests.size();
+
+        java.util.List<String> confirmed = mr.completeBulkDelete(CHAT, new java.util.ArrayList<String>());
+        assertTrue(confirmed.isEmpty());
+        assertEquals(requestsAfterSeed, t.requests.size());
+        assertEquals(1, mr.getCachedMessages(CHAT).size());
+    }
 }

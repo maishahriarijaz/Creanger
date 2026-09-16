@@ -143,6 +143,8 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
     private List<CreangerChat> creangerChats = new ArrayList<>();
     /** Peer identity per chat id: index 0 = display name, 1 = username. */
     private java.util.Map<String, String[]> creangerPeers = new java.util.HashMap<>();
+    /** Fully Telegram-style row state per chat id (preview/date/unread/pin); absent = legacy bind. */
+    private java.util.Map<String, CreangerDialogList.RowState> creangerRows = new java.util.HashMap<>();
 
     /**
      * Replaces the Creanger section rows (empty list hides the section) and
@@ -157,8 +159,20 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
      * resolved in the background (display name / username per chat id).
      */
     public void setCreangerChats(List<CreangerChat> chats, java.util.Map<String, String[]> peers) {
+        setCreangerChats(chats, peers, null);
+    }
+
+    /**
+     * Same as {@link #setCreangerChats(List, java.util.Map)} plus per-chat
+     * {@link CreangerDialogList.RowState} for the fully Telegram-style bind
+     * (last-message preview, date, unread badge, pin). Chats without a row
+     * state keep the legacy title/subtitle bind.
+     */
+    public void setCreangerChats(List<CreangerChat> chats, java.util.Map<String, String[]> peers,
+                                 java.util.Map<String, CreangerDialogList.RowState> rows) {
         creangerChats = chats != null ? new ArrayList<>(chats) : new ArrayList<>();
         creangerPeers = peers != null ? new java.util.HashMap<>(peers) : new java.util.HashMap<>();
+        creangerRows = rows != null ? new java.util.HashMap<>(rows) : new java.util.HashMap<>();
         updateList(null);
     }
 
@@ -929,7 +943,17 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
                 if (item instanceof CreangerChat) {
                     CreangerChat chat = (CreangerChat) item;
                     String[] peer = chat != null ? creangerPeers.get(chat.id) : null;
-                    cell.bind(chat, peer != null ? peer[0] : null, peer != null && peer.length > 1 ? peer[1] : null);
+                    String peerName = peer != null ? peer[0] : null;
+                    String peerUsername = peer != null && peer.length > 1 ? peer[1] : null;
+                    CreangerDialogList.RowState row = chat != null ? creangerRows.get(chat.id) : null;
+                    if (row != null) {
+                        cell.bindFull(chat, peerName, peerUsername,
+                                row.lastMessage, row.lastMessageDateSec, row.unreadCount,
+                                row.pinned, row.muted, row.out, row.senderName,
+                                chat.isDirect(), System.currentTimeMillis() / 1000);
+                    } else {
+                        cell.bind(chat, peerName, peerUsername);
+                    }
                 }
                 break;
             }            case VIEW_TYPE_FORWARD_TO_STORIES_CELL: {

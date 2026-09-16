@@ -87,4 +87,15 @@ public class CreangerChatApiClientTodoTest {
         c.removeCloseFriend("tok", "friend1");
         assertTrue(t.last().path.contains("remove_close_friend"));
     }
+
+    @Test
+    public void listCloseFriendIdsParsesRows() throws Exception {
+        ScriptedTransport t = new ScriptedTransport();
+        t.responseBody = "[{\"friend_id\":\"f1\"},{\"friend_id\":\"f2\"},{\"friend_id\":null}]";
+        List<String> ids = new CreangerChatApiClient(t).listCloseFriendIds("tok");
+        assertEquals(2, ids.size());
+        assertTrue(ids.contains("f1"));
+        assertTrue(ids.contains("f2"));
+        assertTrue(t.last().path.contains("story_close_friends"));
+    }
 }

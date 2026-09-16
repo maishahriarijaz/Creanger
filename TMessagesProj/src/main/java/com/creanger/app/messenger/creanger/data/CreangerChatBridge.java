@@ -701,6 +701,51 @@ public final class CreangerChatBridge {
     }
 
     /**
+     * Bulk delete, phase 2 (background): one atomic
+     * {@code bulk_delete_messages} RPC for ids previously removed via
+     * {@link #applyOptimisticDelete}. On failure every id rolls back BEFORE
+     * the error propagates to the caller.
+     *
+     * @return the message ids the server confirmed
+     */
+    public List<String> completeBulkDelete(String chatId, List<String> messageIds)
+            throws IOException, CreangerApiException {
+        try {
+            List<String> confirmed = repository.completeBulkDelete(chatId, messageIds);
+            resync(chatId);
+            notifyChanged(chatId);
+            return confirmed;
+        } catch (IOException | CreangerApiException e) {
+            if (messageIds != null) {
+                for (String id : messageIds) {
+                    repository.rollbackDelete(chatId, id);
+                }
+            }
+            resync(chatId);
+            notifyChanged(chatId);
+            notifyError(chatId, e);
+            throw e;
+        }
+    }
+
+    // ---- close friends (migration 040 audience list) ----
+
+    /** The caller's close-friends audience ids (owner-scoped, never null). */
+    public List<String> listCloseFriendIds() throws IOException, CreangerApiException {
+        return repository.listCloseFriendIds();
+    }
+
+    /** Adds a user to the caller's close-friends audience. */
+    public void addCloseFriend(String friendId) throws IOException, CreangerApiException {
+        repository.addCloseFriend(friendId);
+    }
+
+    /** Removes a user from the caller's close-friends audience. */
+    public void removeCloseFriend(String friendId) throws IOException, CreangerApiException {
+        repository.removeCloseFriend(friendId);
+    }
+
+    /**
      * Recovers messages missed while Realtime was down using the existing
      * database cursor sync ({@code get_messages_since}): everything with
      * {@code chat_seq > afterSeq}, merged into the cache. This runs after a

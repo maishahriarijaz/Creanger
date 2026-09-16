@@ -668,6 +668,46 @@ public final class MessageRepository {
         return serverId;
     }
 
+    /**
+     * Bulk delete, phase 2 (background): runs the author-only
+     * {@code bulk_delete_messages} RPC (migration 040 — one atomic call that
+     * soft-deletes only the caller's own rows) for ids previously removed via
+     * {@link #applyOptimisticDelete}. On success the rollback snapshots of the
+     * confirmed ids are discarded and the confirmed id list is returned. Rows
+     * the server skipped (not own) stay removed locally; the caller refreshes
+     * to reconcile. Transport failure throws without touching the cache — the
+     * caller rolls back per id via {@link #rollbackDelete}.
+     */
+    public List<String> completeBulkDelete(String chatId, List<String> messageIds)
+            throws IOException, CreangerApiException {
+        String access = engine.requireAccessToken();
+        List<String> confirmed = chatApi.bulkDeleteMessages(access, messageIds);
+        if (confirmed == null) {
+            return new ArrayList<>();
+        }
+        for (String id : confirmed) {
+            pendingDeleteRollback.remove(rollbackKey(chatId, id));
+        }
+        return confirmed;
+    }
+
+    // ---- close friends (migration 040 audience list) ----
+
+    /** The caller's close-friends audience ids (owner-scoped, never null). */
+    public List<String> listCloseFriendIds() throws IOException, CreangerApiException {
+        return chatApi.listCloseFriendIds(engine.requireAccessToken());
+    }
+
+    /** Adds a user to the caller's close-friends audience. */
+    public void addCloseFriend(String friendId) throws IOException, CreangerApiException {
+        chatApi.addCloseFriend(engine.requireAccessToken(), friendId);
+    }
+
+    /** Removes a user from the caller's close-friends audience. */
+    public void removeCloseFriend(String friendId) throws IOException, CreangerApiException {
+        chatApi.removeCloseFriend(engine.requireAccessToken(), friendId);
+    }
+
     /** Restores the pre-delete row after a failed delete RPC (rollback). */
     public void rollbackDelete(String chatId, String messageId) {
         synchronized (cacheLock) {

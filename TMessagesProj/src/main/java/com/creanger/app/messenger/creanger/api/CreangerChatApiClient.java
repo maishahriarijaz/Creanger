@@ -1355,6 +1355,30 @@ public class CreangerChatApiClient {
         executeJson("/rest/v1/rpc/remove_close_friend", args, accessToken);
     }
 
+    /**
+     * Lists the caller's close-friends audience ids (040). Plain PostgREST
+     * read on {@code story_close_friends}: the owner-scoped RLS policy
+     * restricts rows to the caller's own list. Never null.
+     */
+    public List<String> listCloseFriendIds(String accessToken)
+            throws IOException, CreangerApiException {
+        String body = executeList("/rest/v1/story_close_friends",
+                query("select", "friend_id", "order", "created_at.asc"), accessToken);
+        List<String> out = new ArrayList<>();
+        JSONArray rows = parseArray(body);
+        for (int i = 0; i < rows.length(); i++) {
+            JSONObject o = rows.optJSONObject(i);
+            if (o == null) {
+                continue;
+            }
+            String id = nullIfEmpty(o.optString("friend_id", null));
+            if (id != null) {
+                out.add(id);
+            }
+        }
+        return out;
+    }
+
     // ---- execution ----
 
     private String executeList(String path, Map<String, String> query, String accessToken)

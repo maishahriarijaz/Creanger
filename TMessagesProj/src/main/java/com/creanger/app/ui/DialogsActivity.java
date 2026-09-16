@@ -488,6 +488,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     // created search adapter so chat-list search includes Creanger chats.
     private java.util.List<CreangerChat> lastCreangerChats;
     private java.util.Map<String, String[]> lastCreangerPeers;
+    private java.util.Map<String, CreangerDialogList.RowState> lastCreangerRows;
     private ActionBarMenuItem passcodeItem;
     private ActionBarMenuItem downloadsItem;
     private DownloadProgressIcon downloadProgressIcon;
@@ -6163,6 +6164,8 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         final ChatRepository chatRepository = auth.getChatRepository();
         final com.creanger.app.messenger.creanger.auth.CreangerAuthEngine engine =
                 auth.getEngine();
+        final com.creanger.app.messenger.creanger.data.MessageRepository messageRepository =
+                auth.getMessageRepository();
         Utilities.globalQueue.postRunnable(() -> {
             // Use the refreshed list directly: re-reading via getCachedChats()
             // can miss when the repository's account cache key shifts between
@@ -6182,10 +6185,13 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 return;
             }
             // Resolve direct-chat peer identity (members + public profile) so
-            // rows show the real participant instead of a generic title. Runs
-            // on this background queue; failures keep nulls (existing fallback
+            // rows show the real participant instead of a generic title, and
+            // assemble per-chat row state (last-message preview, date, unread
+            // badge, pin/mute) for the fully Telegram-style bind. Runs on this
+            // background queue; failures keep nulls (existing fallback
             // rendering). Never hardcodes any user.
             final java.util.Map<String, String[]> peers = new java.util.HashMap<>();
+            final java.util.Map<String, CreangerDialogList.RowState> rows = new java.util.HashMap<>();
             try {
                 String myId = null;
                 try {
@@ -6194,33 +6200,43 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     myId = me != null ? me.id : null;
                 } catch (Exception ignore) {
                 }
+                final String meId = myId;
+                final long nowMs = System.currentTimeMillis();
                 if (chats != null) {
                     for (CreangerChat chat : chats) {
-                        if (chat == null || !chat.isDirect() || chat.id == null) {
+                        if (chat == null || chat.id == null) {
                             continue;
                         }
-                        if (chat.title != null && !chat.title.trim().isEmpty()
-                                && !"null".equals(chat.title.trim())) {
-                            continue;
-                        }
-                        String peerId = null;
+                        java.util.List<com.creanger.app.messenger.creanger.model.ChatModels.ChatMember> members = null;
                         try {
-                            java.util.List<com.creanger.app.messenger.creanger.model.ChatModels.ChatMember> members =
-                                    chatRepository.refreshMembers(chat.id);
-                            peerId = CreangerChatHeader.peerUserId(members, myId);
+                            members = chatRepository.refreshMembers(chat.id);
                         } catch (Exception ignore) {
                         }
-                        if (peerId == null) {
-                            continue;
+                        if (chat.isDirect()
+                                && (chat.title == null || chat.title.trim().isEmpty()
+                                || "null".equals(chat.title.trim()))) {
+                            String peerId = null;
+                            try {
+                                peerId = CreangerChatHeader.peerUserId(members, meId);
+                            } catch (Exception ignore) {
+                            }
+                            if (peerId != null) {
+                                try {
+                                    com.creanger.app.messenger.creanger.api.SupabaseAuthClient.ProfileRow row =
+                                            engine.getPeerProfile(peerId);
+                                    String display = CreangerDialogList.peerDisplayName(row);
+                                    String username = CreangerDialogList.peerUsername(row);
+                                    if (display != null || username != null) {
+                                        peers.put(chat.id, new String[]{display, username});
+                                    }
+                                } catch (Exception ignore) {
+                                }
+                            }
                         }
                         try {
-                            com.creanger.app.messenger.creanger.api.SupabaseAuthClient.ProfileRow row =
-                                    engine.getPeerProfile(peerId);
-                            String display = CreangerDialogList.peerDisplayName(row);
-                            String username = CreangerDialogList.peerUsername(row);
-                            if (display != null || username != null) {
-                                peers.put(chat.id, new String[]{display, username});
-                            }
+                            rows.put(chat.id, buildCreangerRowState(
+                                    chatRepository, messageRepository, engine,
+                                    chat, members, meId, nowMs));
                         } catch (Exception ignore) {
                         }
                     }
@@ -6233,9 +6249,10 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 }
                 lastCreangerChats = chats;
                 lastCreangerPeers = peers;
+                lastCreangerRows = rows;
                 for (int a = 0; a < viewPages.length; a++) {
                     if (viewPages[a] != null && viewPages[a].dialogsAdapter != null) {
-                        viewPages[a].dialogsAdapter.setCreangerChats(chats, peers);
+                        viewPages[a].dialogsAdapter.setCreangerChats(chats, peers, rows);
                     }
                 }
                 if (searchViewPager != null && searchViewPager.dialogsSearchAdapter != null) {
@@ -6243,6 +6260,54 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 }
             });
         });
+    }
+
+    /**
+     * Builds the {@link CreangerDialogList.RowState} for one chat: newest
+     * messages (fresh fetch, cached fallback), my membership flags and — for
+     * inbound group messages — the sender display name. Never returns null;
+     * any failure degrades to an empty state (legacy subtitle rendering).
+     */
+    private CreangerDialogList.RowState buildCreangerRowState(
+            ChatRepository chatRepository,
+            com.creanger.app.messenger.creanger.data.MessageRepository messageRepository,
+            com.creanger.app.messenger.creanger.auth.CreangerAuthEngine engine,
+            CreangerChat chat,
+            java.util.List<com.creanger.app.messenger.creanger.model.ChatModels.ChatMember> members,
+            String myId, long nowMs) {
+        java.util.List<com.creanger.app.messenger.creanger.model.MessageModels.CreangerMessage> messages = null;
+        try {
+            messages = messageRepository.refreshMessages(
+                    chat.id, CreangerDialogList.ROW_MESSAGE_WINDOW).messages;
+        } catch (Exception ignore) {
+        }
+        if (messages == null || messages.isEmpty()) {
+            try {
+                messages = messageRepository.getCachedMessages(chat.id);
+            } catch (Exception ignore) {
+            }
+        }
+        com.creanger.app.messenger.creanger.model.ChatModels.ChatMember me = null;
+        if (members != null && myId != null) {
+            for (com.creanger.app.messenger.creanger.model.ChatModels.ChatMember m : members) {
+                if (m != null && myId.equals(m.userId)) {
+                    me = m;
+                    break;
+                }
+            }
+        }
+        String senderName = null;
+        com.creanger.app.messenger.creanger.model.MessageModels.CreangerMessage latest =
+                CreangerDialogList.latestVisible(messages);
+        if (latest != null && myId != null && !myId.equals(latest.senderId) && !chat.isDirect()) {
+            try {
+                com.creanger.app.messenger.creanger.api.SupabaseAuthClient.ProfileRow row =
+                        engine.getPeerProfile(latest.senderId);
+                senderName = CreangerDialogList.peerDisplayName(row);
+            } catch (Exception ignore) {
+            }
+        }
+        return CreangerDialogList.rowStateFor(chat, messages, myId, me, senderName, nowMs);
     }
 
     public void onBecomeFullyVisible() {

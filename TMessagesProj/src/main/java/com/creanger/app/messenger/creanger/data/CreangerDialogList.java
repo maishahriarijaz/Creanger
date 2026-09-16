@@ -1,7 +1,9 @@
 package com.creanger.app.messenger.creanger.data;
 
 import com.creanger.app.messenger.creanger.api.SupabaseAuthClient.ProfileRow;
+import com.creanger.app.messenger.creanger.model.ChatModels.ChatMember;
 import com.creanger.app.messenger.creanger.model.ChatModels.CreangerChat;
+import com.creanger.app.messenger.creanger.model.MessageModels.CreangerMessage;
 
 /**
  * Pure-JVM list rules for showing Creanger chats inside the Telegram-style
@@ -240,5 +242,193 @@ public final class CreangerDialogList {
             return pinnedA ? -1 : 1;
         }
         return Integer.compare(dateB, dateA);
+    }
+
+    // ---- Row state for the fully Telegram-style bind (CreangerDialogCell.bindFull) ----
+    // Pure-JVM assembly of everything bindFull needs beyond title/peer identity:
+    // last-message preview + date, unread count, pinned/muted flags. The Android
+    // layer (DialogsActivity/DialogsAdapter) only fetches data and posts the map.
+
+    /** How many newest messages bound a dialog-row refresh reads per chat. */
+    public static final int ROW_MESSAGE_WINDOW = 50;
+
+    /**
+     * Render state of one dialog row. {@code lastMessage} is the raw newest
+     * non-deleted content (possibly empty — the cell falls back to the
+     * subtitle); {@code lastMessageDateSec} is 0 when unknown (hides the date
+     * label). Never null fields except {@code senderName}.
+     */
+    public static final class RowState {
+        public final String lastMessage;
+        public final int lastMessageDateSec;
+        public final int unreadCount;
+        public final boolean pinned;
+        public final boolean muted;
+        public final boolean out;
+        public final String senderName;
+
+        public RowState(String lastMessage, int lastMessageDateSec, int unreadCount,
+                        boolean pinned, boolean muted, boolean out, String senderName) {
+            this.lastMessage = lastMessage != null ? lastMessage : "";
+            this.lastMessageDateSec = lastMessageDateSec;
+            this.unreadCount = Math.max(0, unreadCount);
+            this.pinned = pinned;
+            this.muted = muted;
+            this.out = out;
+            this.senderName = senderName;
+        }
+    }
+
+    /**
+     * Parses an ISO-8601 timestamp to unix seconds (UTC). Accepts
+     * {@code 2026-09-15T10:30:00Z}, with millis, or with a {@code +HH:MM} /
+     * {@code -HH:MM} offset. Returns 0 when null/empty/unparseable (the row
+     * then hides its date label instead of showing a wrong date). No
+     * java.time (min SDK 21).
+     */
+    public static int parseIso8601ToUnix(String iso) {
+        if (iso == null) {
+            return 0;
+        }
+        String s = iso.trim();
+        if (s.isEmpty()) {
+            return 0;
+        }
+        try {
+            int tzSign = 0;
+            int tzHours = 0;
+            int tzMinutes = 0;
+            int plusIdx = s.lastIndexOf('+');
+            int minusIdx = s.lastIndexOf('-');
+            int tzIdx = plusIdx > 10 ? plusIdx : (minusIdx > 10 ? minusIdx : -1);
+            if (tzIdx > 0) {
+                String tzPart = s.substring(tzIdx);
+                s = s.substring(0, tzIdx);
+                String tzNum = tzPart.substring(1);
+                String[] tzParts = tzNum.split(":");
+                tzHours = Integer.parseInt(tzParts[0]);
+                tzMinutes = tzParts.length > 1 ? Integer.parseInt(tzParts[1]) : 0;
+                tzSign = tzPart.charAt(0) == '+' ? 1 : -1;
+            } else if (s.endsWith("Z") || s.endsWith("z")) {
+                s = s.substring(0, s.length() - 1);
+            }
+            int dotIdx = s.indexOf('.');
+            if (dotIdx > 0) {
+                s = s.substring(0, dotIdx);
+            }
+            int tIdx = s.indexOf('T');
+            if (tIdx < 0) {
+                tIdx = s.indexOf(' ');
+            }
+            if (tIdx < 0) {
+                return 0;
+            }
+            String datePart = s.substring(0, tIdx);
+            String timePart = s.substring(tIdx + 1);
+            String[] dateParts = datePart.split("-");
+            String[] timeParts = timePart.split(":");
+            if (dateParts.length != 3 || timeParts.length != 3) {
+                return 0;
+            }
+            int year = Integer.parseInt(dateParts[0]);
+            int month = Integer.parseInt(dateParts[1]);
+            int day = Integer.parseInt(dateParts[2]);
+            int hour = Integer.parseInt(timeParts[0]);
+            int minute = Integer.parseInt(timeParts[1]);
+            int second = Integer.parseInt(timeParts[2]);
+            java.util.Calendar cal = java.util.Calendar.getInstance(
+                    java.util.TimeZone.getTimeZone("UTC"));
+            cal.clear();
+            cal.setLenient(false);
+            cal.set(year, month - 1, day, hour, minute, second);
+            long millis = cal.getTimeInMillis() - tzSign * (tzHours * 3600L + tzMinutes * 60L) * 1000L;
+            long secs = millis / 1000L;
+            return secs > Integer.MAX_VALUE || secs < 0 ? 0 : (int) secs;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /**
+     * True when {@code mutedUntilIso} parses to a moment after {@code nowMs}.
+     * Null/empty/unparseable/past values mean not muted (fail open: the row
+     * still renders, just without the muted badge color).
+     */
+    public static boolean isMuted(String mutedUntilIso, long nowMs) {
+        int mutedSec = parseIso8601ToUnix(mutedUntilIso);
+        return mutedSec > 0 && ((long) mutedSec) * 1000L > nowMs;
+    }
+
+    /**
+     * Counts known-unread messages: inbound (sender is not me), not
+     * soft-deleted, strictly newer than {@code lastReadAtIso}. A null/empty
+     * {@code lastReadAtIso} means nothing was ever marked read, so every
+     * inbound message in the window counts. This is a lower bound over the
+     * fetched window (never inflated), or 0 when inputs are missing.
+     */
+    public static int unreadCount(java.util.List<CreangerMessage> messages, String myId,
+                                  String lastReadAtIso) {
+        if (messages == null || messages.isEmpty()) {
+            return 0;
+        }
+        int readSec = parseIso8601ToUnix(lastReadAtIso);
+        int count = 0;
+        for (CreangerMessage m : messages) {
+            if (m == null || m.deletedAt != null) {
+                continue;
+            }
+            if (myId != null && myId.equals(m.senderId)) {
+                continue;
+            }
+            if (m.senderId == null) {
+                continue;
+            }
+            if (parseIso8601ToUnix(m.createdAt) > readSec) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Newest non-deleted message of a newest-first list, or null when none is
+     * visible. Shared by {@link #rowStateFor} and the Android layer (which
+     * additionally resolves the sender profile for group previews).
+     */
+    public static CreangerMessage latestVisible(java.util.List<CreangerMessage> newestFirst) {
+        if (newestFirst == null) {
+            return null;
+        }
+        for (CreangerMessage m : newestFirst) {
+            if (m != null && m.deletedAt == null) {
+                return m;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Assembles the {@link RowState} for one chat from its newest-first
+     * messages, my user id, my membership row (may be null) and the resolved
+     * sender display name for group previews (may be null). The newest
+     * non-deleted message supplies preview content/date/out; when none exists
+     * the row falls back to subtitle rendering with zero date/unread.
+     */
+    public static RowState rowStateFor(CreangerChat chat,
+                                       java.util.List<CreangerMessage> newestFirst,
+                                       String myId, ChatMember me, String senderName,
+                                       long nowMs) {
+        CreangerMessage latest = latestVisible(newestFirst);
+        String lastReadAt = me != null ? me.lastReadAt : null;
+        int unread = unreadCount(newestFirst, myId, lastReadAt);
+        boolean pinned = me != null && me.pinnedPosition != null;
+        boolean muted = me != null && isMuted(me.mutedUntil, nowMs);
+        if (latest == null) {
+            return new RowState("", 0, 0, pinned, muted, false, senderName);
+        }
+        boolean out = myId != null && myId.equals(latest.senderId);
+        int dateSec = parseIso8601ToUnix(latest.createdAt);
+        String content = latest.content != null ? latest.content : "";
+        return new RowState(content, dateSec, unread, pinned, muted, out, senderName);
     }
 }

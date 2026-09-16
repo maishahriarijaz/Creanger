@@ -837,6 +837,11 @@ public class ChatActivity extends BaseFragment implements
     private String creangerOwnerId;
     private String creangerHeaderTitle;
     private String creangerHeaderResolvedFor;
+    // Close-friends header item (direct Creanger chats only): peer id + current
+    // membership, resolved in the background; the sub-item is created lazily.
+    private String creangerCloseFriendPeerId;
+    private boolean creangerCloseFriendAdded;
+    private ActionBarMenuItem.Item creangerCloseFriendItem;
     private CreangerMessageAsync creangerMessageAsync;
     private CreangerMessageObjectAdapter creangerMessageAdapter;
     private boolean creangerHasMore;
@@ -1647,6 +1652,7 @@ public class ChatActivity extends BaseFragment implements
     private final static int auto_delete_timer = 26;
     private final static int change_colors = 27;
     private final static int tag_message = 28;
+    private final static int creanger_close_friend = 29;
 
     private final static int bot_help = 30;
     private final static int bot_settings = 31;
@@ -3345,11 +3351,22 @@ public class ChatActivity extends BaseFragment implements
             creangerSaveDraft(); // final save before teardown
         }
         if (isCreangerChat && creangerMessageAsync != null) {
-            creangerMessageAsync.clear();
+            try {
+                creangerMessageAsync.clear();
+            } catch (Exception ignored) {
+            }
             creangerMessageAsync = null;
         }
+        creangerCloseFriendPeerId = null;
+        creangerCloseFriendItem = null;
         if (creangerRealtimeClient != null) {
-            creangerRealtimeClient.close();
+            // Teardown runs on the main thread: never let a realtime close
+            // failure crash fragment destruction (previously a FATAL
+            // NetworkOnMainThreadException on back-press from Creanger chats).
+            try {
+                creangerRealtimeClient.close();
+            } catch (Exception ignored) {
+            }
             creangerRealtimeClient = null;
         }
         if (messageMetricsView != null) {
@@ -3777,6 +3794,8 @@ public class ChatActivity extends BaseFragment implements
                         return;
                     }
                     showDialog(AlertsCreator.createTTLAlert(getParentActivity(), currentEncryptedChat, themeDelegate).create());
+                } else if (id == creanger_close_friend) {
+                    toggleCreangerCloseFriend();
                 } else if (id == clear_history || id == delete_chat || id == auto_delete_timer) {
                     if (getParentActivity() == null) {
                         return;
@@ -14314,6 +14333,144 @@ public class ChatActivity extends BaseFragment implements
      * (author-only, soft-delete {@code delete_message} RPC; optimistic removal
      * + rollback in the repository).
      */
+    /**
+     * Deletes several own messages with one atomic
+     * {@code bulk_delete_messages} RPC (migration 040). Optimistic removal is
+     * visible immediately; the server confirms per id (only own rows are
+     * deleted) and failures roll back. Single-message deletes keep the
+     * dedicated {@link #creangerDeleteTextMessage} path.
+     */
+    public void creangerDeleteMessages(java.util.List<String> messageIds) {
+        if (creangerMessageAsync == null || creangerChatId == null || messageIds == null || messageIds.isEmpty()) {
+            return;
+        }
+        creangerMessageAsync.bulkDeleteMessages(creangerChatId, new java.util.ArrayList<>(messageIds),
+                new CreangerMessageAsync.Callback<java.util.List<String>>() {
+                    @Override
+                    public void onSuccess(java.util.List<String> result) {
+                        syncCreangerMessages();
+                    }
+
+                    @Override
+                    public void onError(@Nullable CreangerApiException error, @Nullable Throwable ioError) {
+                        syncCreangerMessages(); // post-rollback state (rows restored)
+                    }
+                });
+        syncCreangerMessages(); // the optimistic removal is already visible
+    }
+
+    // ---- Creanger close friends (migration 040 audience list) ----
+
+    /**
+     * Refreshes the Close Friends header item for direct Creanger chats
+     * (background resolve, UI post): finds the peer, checks membership in my
+     * audience list, and shows "Add to Close Friends" / "Remove from Close
+     * Friends". Hidden for groups/channels, unknown peers and non-Creanger
+     * chats. Safe to call repeatedly (e.g. onResume); failures hide the item.
+     */
+    private void checkCreangerCloseFriendItem() {
+        if (!isCreangerChat || creangerChatId == null || creangerMessageAsync == null) {
+            return;
+        }
+        final String chatId = creangerChatId;
+        final String ownerId = creangerOwnerId;
+        Utilities.globalQueue.postRunnable(() -> {
+            String peerId = null;
+            boolean added = false;
+            try {
+                CreangerAuth auth = CreangerAuth.getInstance(ApplicationLoader.applicationContext);
+                if (auth == null) {
+                    return;
+                }
+                java.util.List<ChatMember> members = auth.getChatRepository().refreshMembers(chatId);
+                boolean isDirect = false;
+                CreangerChat chat = findCachedCreangerChat(auth.getChatRepository(), chatId);
+                if (chat != null) {
+                    isDirect = chat.isDirect();
+                }
+                if (!isDirect) {
+                    AndroidUtilities.runOnUIThread(this::hideCreangerCloseFriendItem);
+                    return;
+                }
+                peerId = CreangerChatHeader.peerUserId(members, ownerId);
+                if (peerId == null) {
+                    AndroidUtilities.runOnUIThread(this::hideCreangerCloseFriendItem);
+                    return;
+                }
+                java.util.List<String> audience = auth.getMessageRepository().listCloseFriendIds();
+                added = audience != null && audience.contains(peerId);
+            } catch (Exception ignore) {
+                AndroidUtilities.runOnUIThread(this::hideCreangerCloseFriendItem);
+                return;
+            }
+            final String resolvedPeerId = peerId;
+            final boolean resolvedAdded = added;
+            AndroidUtilities.runOnUIThread(() -> {
+                if (!isCreangerChat || !chatId.equals(creangerChatId)) {
+                    return;
+                }
+                creangerCloseFriendPeerId = resolvedPeerId;
+                creangerCloseFriendAdded = resolvedAdded;
+                if (headerItem == null) {
+                    return;
+                }
+                if (creangerCloseFriendItem == null) {
+                    creangerCloseFriendItem = headerItem.lazilyAddSubItem(creanger_close_friend,
+                            R.drawable.msg_contact_add,
+                            resolvedAdded ? "Remove from Close Friends" : "Add to Close Friends");
+                } else {
+                    creangerCloseFriendItem.setText(
+                            resolvedAdded ? "Remove from Close Friends" : "Add to Close Friends");
+                }
+                creangerCloseFriendItem.setVisibility(View.VISIBLE);
+            });
+        });
+    }
+
+    private void hideCreangerCloseFriendItem() {
+        creangerCloseFriendPeerId = null;
+        if (creangerCloseFriendItem != null) {
+            creangerCloseFriendItem.setVisibility(View.GONE);
+        }
+    }
+
+    /** Toggles the direct-chat peer in my close-friends audience, then re-checks. */
+    private void toggleCreangerCloseFriend() {
+        if (!isCreangerChat || creangerMessageAsync == null || creangerCloseFriendPeerId == null) {
+            return;
+        }
+        final String peerId = creangerCloseFriendPeerId;
+        final boolean remove = creangerCloseFriendAdded;
+        CreangerMessageAsync.Callback<Void> cb = new CreangerMessageAsync.Callback<Void>() {
+            @Override
+            public void onSuccess(Void result) {
+                AndroidUtilities.runOnUIThread(() -> {
+                    Context ctx = getParentActivity();
+                    if (ctx != null) {
+                        Toast.makeText(ctx, remove ? "Removed from Close Friends" : "Added to Close Friends",
+                                Toast.LENGTH_SHORT).show();
+                    }
+                    checkCreangerCloseFriendItem();
+                });
+            }
+
+            @Override
+            public void onError(@Nullable CreangerApiException error, @Nullable Throwable ioError) {
+                AndroidUtilities.runOnUIThread(() -> {
+                    Context ctx = getParentActivity();
+                    if (ctx != null) {
+                        Toast.makeText(ctx, "Close friends update failed", Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+        };
+        if (remove) {
+            creangerMessageAsync.removeCloseFriend(peerId, cb);
+        } else {
+            creangerMessageAsync.addCloseFriend(peerId, cb);
+        }
+    }
+
     public void creangerDeleteTextMessage(String messageId) {
         if (creangerMessageAsync == null || creangerChatId == null || messageId == null) {
             return;
@@ -31127,6 +31284,8 @@ private ArrayList<MessageObject> notPushedSponsoredMessages;
             // (rowCount stayed 0); re-sync now that views exist so history is
             // visible instantly without waiting for the next realtime frame.
             syncCreangerMessages(false);
+            // Close-friends header item (direct chats only).
+            checkCreangerCloseFriendItem();
         }
         checkRaiseSensors();
         if (chatAttachAlert != null) {
@@ -31902,8 +32061,14 @@ private ArrayList<MessageObject> notPushedSponsoredMessages;
             builder.setMessage(LocaleController.getString(R.string.AreYouSureDeleteFewMessages));
         }
         builder.setPositiveButton(LocaleController.getString(R.string.Delete), (dialogInterface, i) -> {
-            for (String messageId : messageIds) {
-                creangerDeleteTextMessage(messageId);
+            if (messageIds.size() > 1) {
+                // One atomic bulk_delete_messages RPC (migration 040) instead
+                // of N single deletes; the server keeps only own rows.
+                creangerDeleteMessages(messageIds);
+            } else {
+                for (String messageId : messageIds) {
+                    creangerDeleteTextMessage(messageId);
+                }
             }
             for (String messageId : localMessageIds) {
                 creangerDiscardLocalMessage(messageId);
