@@ -177,6 +177,7 @@ MESSAGE_STATUS,
     private static final String EVENT_POSTGRES_CHANGES = "postgres_changes";
     private static final String EVENT_BROADCAST = "broadcast";
     private static final String EVENT_PHX_REPLY = "phx_reply";
+    private static final String TOPIC_PHOENIX = "phoenix";
     static final String BROADCAST_EVENT_TYPING = "typing";
     private static final String EVENT_TYPE_INSERT = "INSERT";
     private static final String EVENT_TYPE_UPDATE = "UPDATE";
@@ -188,6 +189,30 @@ MESSAGE_STATUS,
     public static final String EVENT_JOIN_DELETE = "DELETE";
 
     private RealtimeMessageParser() {
+    }
+
+    /**
+     * True when the raw frame is the server's acknowledgement of our Phoenix
+     * heartbeat: a {@code phx_reply} on the {@code phoenix} topic. Used by the
+     * socket transport to timestamp the heartbeat round trip (connection RTT).
+     * A cheap containment pre-filter avoids parsing every data frame as JSON.
+     */
+    public static boolean isPhoenixHeartbeatReply(String frameJson) {
+        if (frameJson == null) {
+            return false;
+        }
+        // Containment pre-filter: "phoenix" + "phx_reply" never appear together
+        // in message/reaction/typing frames (topic is always realtime:*).
+        if (!frameJson.contains(TOPIC_PHOENIX) || !frameJson.contains(EVENT_PHX_REPLY)) {
+            return false;
+        }
+        try {
+            JSONObject frame = new JSONObject(frameJson);
+            return TOPIC_PHOENIX.equals(frame.optString("topic", null))
+                    && EVENT_PHX_REPLY.equals(frame.optString("event", null));
+        } catch (JSONException e) {
+            return false;
+        }
     }
 
     /**

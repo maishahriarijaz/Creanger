@@ -59,6 +59,13 @@ public final class MessageRealtimeClient {
         void schedule(long delayMillis, Runnable task);
     }
 
+    /**
+     * Connection-quality sink for the realtime latency badge. Samples are
+     * delivered on the poster thread (UI on device, synchronous in tests).
+     */
+    public interface LatencySink extends RealtimeLatencySink {
+    }
+
     /** Chat-screen sink; every call is delivered on the poster thread. */
     public interface Listener {
         /** A message was accepted as new for the open chat. */
@@ -134,7 +141,12 @@ public final class MessageRealtimeClient {
     private final Listener listener;
     private final MessageRealtimeDeduplicator deduplicator;
     private final ExecutorService connectExecutor;
-
+    /**
+     * Latency meter for the chat-screen badge: E2E samples come from realtime
+     * row timestamps, RTT samples from the transport's heartbeat round trips.
+     */
+    private final RealtimeLatency latency = new RealtimeLatency();
+    private volatile RealtimeLatencySink latencySink;
     private volatile boolean active;
     private volatile String chatId;
     private volatile boolean connected;
@@ -174,6 +186,28 @@ public final class MessageRealtimeClient {
         });
     }
 
+    /** Attaches the badge sink; emits the current smoothed value immediately. */
+    public void setLatencySink(@Nullable RealtimeLatencySink sink) {
+        this.latencySink = sink;
+        if (sink != null) {
+            long ms = latency.getDisplayMs();
+            final String chat = chatId;
+            if (ms >= 0 && chat != null) {
+                sink.onLatencySample(chat, latency.getE2eMs() >= 0 ? RealtimeLatency.Kind.E2E : RealtimeLatency.Kind.RTT, ms);
+            }
+        }
+    }
+
+    /** Smoothed E2E delivery latency in ms, or -1 before any sample. */
+    public long getE2eLatencyMs() {
+        return latency.getE2eMs();
+    }
+
+    /** Smoothed heartbeat RTT in ms, or -1 before any sample. */
+    public long getRttLatencyMs() {
+        return latency.getRttMs();
+    }
+
     /**
      * Subscribes to a chat (replacing any previous subscription). {@code
      * initialLastSeq} seeds the recovery cursor — normally the newest
@@ -194,6 +228,16 @@ public final class MessageRealtimeClient {
         this.lastKnownSeq = initialLastSeq;
         this.reconnectBackoffMs = INITIAL_BACKOFF_MS;
         this.transport.setListener(transportListener);
+        // Heartbeat round trips flow through the same meter as E2E samples so
+        // the badge has data between messages (RTT is its own series).
+        if (transport instanceof SocketMessageRealtimeTransport) {
+            ((SocketMessageRealtimeTransport) transport).setRttSink((sentAtMs, nowMs) -> {
+                long ms = latency.onRoundTrip(sentAtMs, nowMs);
+                if (ms >= 0) {
+                    emitSample(chatId, RealtimeLatency.Kind.RTT, ms);
+                }
+            });
+        }
         connect();
     }
 
@@ -203,6 +247,7 @@ public final class MessageRealtimeClient {
         this.connected = false;
         this.chatId = null;
         this.deduplicator.clearAll();
+        this.latency.reset();
         this.transport.close();
     }
 
@@ -250,6 +295,37 @@ public final class MessageRealtimeClient {
     }
 
     // ---- connection lifecycle ----
+
+    /**
+     * Folds a realtime row's server timestamp into the E2E series and emits
+     * the smoothed sample to the sink (poster thread — the frame callback
+     * already runs there). Silently skipped when the sink is absent or the
+     * row carries no usable timestamp.
+     */
+    private void emitE2e(String chat, @Nullable String serverCreatedAtMs) {
+        RealtimeLatencySink sink = latencySink;
+        if (sink == null) {
+            return;
+        }
+        long ms = latency.onRealtimeRow(serverCreatedAtMs, System.currentTimeMillis());
+        if (ms >= 0) {
+            emitSample(chat, RealtimeLatency.Kind.E2E, ms);
+        }
+    }
+
+    /** Relocates one sample to the poster thread; the sink must be cheap. */
+    private void emitSample(String chat, RealtimeLatency.Kind kind, long ms) {
+        RealtimeLatencySink sink = latencySink;
+        if (sink == null) {
+            return;
+        }
+        poster.post(() -> {
+            RealtimeLatencySink s = latencySink;
+            if (s != null) {
+                s.onLatencySample(chat, kind, ms);
+            }
+        });
+    }
 
     /** Async entry: runs the blocking open on the background executor. */
     private void connect() {
@@ -373,6 +449,7 @@ public final class MessageRealtimeClient {
                         lastKnownSeq = Math.max(lastKnownSeq, result.message.chatSeq);
                     }
                     if (deduplicator.isNew(chat, result.message)) {
+                        emitE2e(chat, result.message.createdAt);
                         final CreangerMessage message = result.message;
                         if (listener != null) {
                             poster.post(() -> listener.onMessageReceived(chat, message));

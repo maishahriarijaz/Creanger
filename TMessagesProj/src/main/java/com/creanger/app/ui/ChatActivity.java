@@ -160,6 +160,8 @@ import com.creanger.app.messenger.creanger.model.MessageModels.MessageStatusUpda
 import com.creanger.app.messenger.creanger.model.MessageModels.MessageReaction;
 import com.creanger.app.messenger.creanger.model.MessageModels.MessageType;
 import com.creanger.app.messenger.creanger.realtime.MessageRealtimeClient;
+import com.creanger.app.messenger.creanger.realtime.RealtimeLatency;
+import com.creanger.app.messenger.creanger.realtime.RealtimeLatencySink;
 import com.creanger.app.messenger.creanger.realtime.SocketMessageRealtimeTransport;
 import com.creanger.app.messenger.AndroidUtilities;
 import com.creanger.app.messenger.ApplicationLoader;
@@ -284,6 +286,7 @@ import com.creanger.app.ui.Components.blur3.utils.Blur3Utils;
 import com.creanger.app.ui.Components.chat.ChatActivityBottomViewsVisibilityController;
 import com.creanger.app.ui.Components.chat.ChatActivityDraftMessageMeasureController;
 import com.creanger.app.ui.Components.chat.ChatActivityMessageMetricsView;
+import com.creanger.app.ui.Components.chat.CreangerLatencyBadgeView;
 import com.creanger.app.ui.Components.chat.ChatActivitySearchContainer;
 import com.creanger.app.ui.Components.chat.layouts.ChatActivityActionsButtonsLayout;
 import com.creanger.app.ui.Components.chat.layouts.ChatActivityChannelButtonsLayout;
@@ -850,6 +853,8 @@ public class ChatActivity extends BaseFragment implements
     private boolean creangerHasMore;
     private long creangerNextOlderSeq;
     private MessageRealtimeClient creangerRealtimeClient;
+    /** Live realtime latency pill under the action bar (Creanger chats only). */
+    private CreangerLatencyBadgeView creangerLatencyBadge;
     private final MediaController.VoiceMessageSendInterceptor creangerVoiceSendInterceptor = (
             long dialogId, String audioPath, long durationMs, String mimeType,
             MessageObject replyToMsg, boolean notify) -> {
@@ -3371,6 +3376,9 @@ public class ChatActivity extends BaseFragment implements
             } catch (Exception ignored) {
             }
             creangerRealtimeClient = null;
+        }
+        if (creangerLatencyBadge != null) {
+            creangerLatencyBadge.reset();
         }
         if (messageMetricsView != null) {
             messageMetricsView.finish();
@@ -8440,6 +8448,13 @@ public class ChatActivity extends BaseFragment implements
             messageMetricsView.init(currentAccount, getDialogId(), contentView, chatListView);
             messageMetricsView.setIsUserActive();
             contentView.addView(messageMetricsView);
+        }
+
+        if (isCreangerChat) {
+            // Live realtime-latency pill under the action bar; starts hidden and
+            // appears with the first smoothed sample from the realtime client.
+            creangerLatencyBadge = new CreangerLatencyBadgeView(context);
+            contentView.addView(creangerLatencyBadge, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, android.view.Gravity.TOP));
         }
 
         checkInstantSearch();
@@ -13583,6 +13598,15 @@ public class ChatActivity extends BaseFragment implements
                     public void onAuthError(String chatId, Throwable cause) {
                     }
                 });
+        creangerRealtimeClient.setLatencySink(new RealtimeLatencySink() {
+            @Override
+            public void onLatencySample(String chatId, RealtimeLatency.Kind kind, long ms) {
+                if (creangerLatencyBadge == null || chatId == null || !chatId.equals(creangerChatId)) {
+                    return;
+                }
+                creangerLatencyBadge.onLatencySample(kind, ms);
+            }
+        });
         creangerRealtimeClient.subscribe(getCreangerChatId(), creangerLatestSeq());
     }
 
@@ -31317,6 +31341,9 @@ private ArrayList<MessageObject> notPushedSponsoredMessages;
             syncCreangerMessages(false);
             // Close-friends header item (direct chats only).
             checkCreangerCloseFriendItem();
+            if (creangerLatencyBadge != null) {
+                creangerLatencyBadge.onForegroundCheck();
+            }
         }
         checkRaiseSensors();
         if (chatAttachAlert != null) {

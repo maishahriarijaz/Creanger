@@ -3,6 +3,8 @@ package com.creanger.app.messenger.creanger.realtime;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import androidx.annotation.Nullable;
+
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
@@ -76,6 +78,23 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
     private ExecutorService readerExecutor;
     private volatile ScheduledExecutorService heartbeatExecutor;
     private final AtomicLong refCounter = new AtomicLong();
+    /** Wall-clock time the last Phoenix heartbeat was written to the socket. */
+    private volatile long lastHeartbeatSentAtMs;
+    /** Optional RTT sink (heartbeat round trips); null when unused. */
+    private volatile RttSink rttSink;
+
+    /**
+     * Receives raw heartbeat round-trip samples from the transport (reader
+     * thread). The realtime client folds these into the shared latency meter
+     * and re-emits them on its poster.
+     */
+    public interface RttSink {
+        /**
+         * @param sentAtMs wall-clock time the heartbeat was written to the socket
+         * @param nowMs    wall-clock time the server reply was read
+         */
+        void onRoundTrip(long sentAtMs, long nowMs);
+    }
     /**
      * Supabase project anon key, sent as the {@code apikey} header and query
      * param on the realtime handshake. Supabase authenticates the handshake
@@ -108,6 +127,15 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
     /** Sets the Supabase anon key used as {@code apikey} on the handshake. */
     public void setApiKey(String apiKey) {
         this.apiKey = apiKey;
+    }
+
+    /**
+     * Supplies the transport's own connection-quality samples: the wall-clock
+     * round trip of each Phoenix heartbeat. Delivered on the reader thread —
+     * implementations must be cheap and relocate to their own poster.
+     */
+    public void setRttSink(@Nullable RttSink sink) {
+        this.rttSink = sink;
     }
 
     @Override
@@ -285,6 +313,7 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
             case WebSocketFrameCodec.OP_TEXT:
             case WebSocketFrameCodec.OP_BINARY: {
                 String text = new String(frame.payload, StandardCharsets.UTF_8);
+                notifyHeartbeatReply(text);
                 Listener l = this.listener;
                 if (l != null) {
                     l.onTransportFrame(text);
@@ -393,6 +422,7 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
             try {
                 String frame = buildHeartbeatPayload(nextRef());
                 sendFrame(WebSocketFrameCodec.OP_TEXT, frame.getBytes(StandardCharsets.UTF_8));
+                lastHeartbeatSentAtMs = System.currentTimeMillis();
             } catch (Exception e) {
                 // A failed heartbeat means the socket is dead: tear down so
                 // the client reconnects (which rejoins + re-authenticates).
@@ -520,6 +550,28 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
 
     private static String urlEncode(String value) throws IOException {
         return URLEncoder.encode(value, "UTF-8");
+    }
+
+    /**
+     * Measures the Phoenix heartbeat round trip: the very next frame after a
+     * heartbeat was written is the server's {@code phx_reply} on the
+     * {@code phoenix} topic, so now minus the last heartbeat send time is the
+     * socket RTT (no clock agreement involved). The sink receives nothing
+     * when no heartbeat is in flight (any other inbound frame).
+     */
+    private void notifyHeartbeatReply(String text) {
+        RttSink sink = this.rttSink;
+        if (sink == null) {
+            return;
+        }
+        long sentAt = lastHeartbeatSentAtMs;
+        if (sentAt <= 0) {
+            return;
+        }
+        lastHeartbeatSentAtMs = 0;
+        if (RealtimeMessageParser.isPhoenixHeartbeatReply(text)) {
+            sink.onRoundTrip(sentAt, System.currentTimeMillis());
+        }
     }
 
     private void notifyUnauthorized(String reason) {
