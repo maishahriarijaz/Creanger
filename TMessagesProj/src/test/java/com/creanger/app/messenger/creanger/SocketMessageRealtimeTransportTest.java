@@ -154,4 +154,117 @@ public class SocketMessageRealtimeTransportTest {
             }
         }
     }
+
+    @Test
+    public void accessTokenPayloadAuthorizesChannelWithJwt() throws Exception {
+        JSONObject frame = new JSONObject(
+                SocketMessageRealtimeTransport.buildAccessTokenPayload("user-jwt-123", "7"));
+        assertEquals(RealtimeMessageParser.CHANNEL_TOPIC, frame.optString("topic"));
+        assertEquals("access_token", frame.optString("event"));
+        assertEquals("user-jwt-123", frame.optJSONObject("payload").optString("access_token"));
+        assertEquals("7", frame.optString("ref"));
+    }
+
+    @Test
+    public void heartbeatPayloadTargetsPhoenixTopic() throws Exception {
+        JSONObject frame = new JSONObject(
+                SocketMessageRealtimeTransport.buildHeartbeatPayload("3"));
+        assertEquals("phoenix", frame.optString("topic"));
+        assertEquals("heartbeat", frame.optString("event"));
+        assertEquals("3", frame.optString("ref"));
+    }
+
+    /**
+     * Wire proof: after the HTTP upgrade the client must push the channel
+     * join AND the user-JWT {@code access_token} frame. Without the latter
+     * the server runs the subscription as anon and rejects every row with
+     * {@code Error 401: Unauthorized} — the "nothing is realtime" failure.
+     */
+    @Test(timeout = 30000)
+    public void connectPushesJoinAndAccessTokenOnWire() throws Exception {
+        final java.net.ServerSocket server = new java.net.ServerSocket(0);
+        final int port = server.getLocalPort();
+        final java.util.List<String> frames = new java.util.ArrayList<>();
+        Thread accepter = new Thread(() -> {
+            try {
+                java.net.Socket s = server.accept();
+                s.setSoTimeout(10000);
+                java.io.InputStream in = s.getInputStream();
+                int state = 0;
+                while (state < 4) {
+                    int b = in.read();
+                    if (b == -1) {
+                        s.close();
+                        return;
+                    }
+                    if (b == '\r' || b == '\n') {
+                        state++;
+                    } else {
+                        state = 0;
+                    }
+                }
+                String response = "HTTP/1.1 101 Switching Protocols\r\n"
+                        + "Upgrade: websocket\r\n"
+                        + "Connection: Upgrade\r\n"
+                        + "Sec-WebSocket-Accept: test\r\n\r\n";
+                s.getOutputStream().write(response.getBytes("UTF-8"));
+                s.getOutputStream().flush();
+                // Decode masked client text frames until both expected
+                // frames arrive (join + access_token).
+                java.io.DataInputStream din = new java.io.DataInputStream(in);
+                long deadline = System.currentTimeMillis() + 8000;
+                while (System.currentTimeMillis() < deadline && frames.size() < 2) {
+                    int b0;
+                    try {
+                        b0 = din.readUnsignedByte();
+                    } catch (java.io.IOException timeout) {
+                        break;
+                    }
+                    int b1 = din.readUnsignedByte();
+                    int len = b1 & 0x7F;
+                    if (len == 126) {
+                        len = din.readUnsignedShort();
+                    } else if (len == 127) {
+                        len = (int) din.readLong();
+                    }
+                    byte[] mask = new byte[4];
+                    din.readFully(mask);
+                    byte[] payload = new byte[len];
+                    din.readFully(payload);
+                    for (int i = 0; i < len; i++) {
+                        payload[i] ^= mask[i % 4];
+                    }
+                    if ((b0 & 0x0F) == 0x1) {
+                        frames.add(new String(payload, "UTF-8"));
+                    }
+                }
+                s.close();
+            } catch (Exception ignored) {
+            }
+        });
+        accepter.setDaemon(true);
+        accepter.start();
+        SocketMessageRealtimeTransport t = new SocketMessageRealtimeTransport(
+                "ws://127.0.0.1:" + port + "/realtime/v1/websocket?vsn=1.0.0");
+        try {
+            t.connect("user-jwt-123");
+            long deadline = System.currentTimeMillis() + 8000;
+            while (System.currentTimeMillis() < deadline && frames.size() < 2) {
+                Thread.sleep(50);
+            }
+        } finally {
+            t.close();
+            try {
+                server.close();
+            } catch (Exception ignored) {
+            }
+        }
+        assertEquals("expected join + access_token frames, got: " + frames, 2, frames.size());
+        JSONObject join = new JSONObject(frames.get(0));
+        assertEquals("phx_join", join.optString("event"));
+        JSONObject auth = new JSONObject(frames.get(1));
+        assertEquals("access_token", auth.optString("event"));
+        assertEquals(RealtimeMessageParser.CHANNEL_TOPIC, auth.optString("topic"));
+        assertEquals("user-jwt-123", auth.optJSONObject("payload").optString("access_token"));
+    }
 }

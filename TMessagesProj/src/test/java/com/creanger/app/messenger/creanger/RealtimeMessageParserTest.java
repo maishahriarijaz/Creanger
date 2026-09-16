@@ -359,4 +359,108 @@ public class RealtimeMessageParserTest {
         assertEquals(Kind.IGNORED,
                 RealtimeMessageParser.parse(CHAT, mediaInsert("m-9", "chat-OTHER", 53, "document", "x")).kind);
     }
+
+    // ---- raw wire shape: data.{type,record,old_record} (Supabase protocol) ----
+
+    /**
+     * Exact on-the-wire frame: realtime-js enriches these into
+     * eventType/new/old client-side, but the raw socket carries
+     * type/record/old_record. Every live event uses this shape.
+     */
+    private static String wireInsert(String id, String chatId, long chatSeq, String content) {
+        return "{\"topic\":\"realtime:messages\",\"event\":\"postgres_changes\",\"payload\":{\"type\":\"postgres_changes\",\"data\":{"
+                + "\"schema\":\"public\",\"table\":\"messages\",\"type\":\"INSERT\","
+                + "\"record\":{\"id\":\"" + id + "\",\"chat_id\":\"" + chatId + "\",\"sender_id\":\"uuid-other\","
+                + "\"message_type\":\"text\",\"content\":\"" + content + "\",\"status\":\"sent\","
+                + "\"client_message_id\":null,\"chat_seq\":" + chatSeq + ",\"created_at\":\"2026-08-16T10:00:00Z\","
+                + "\"edited_at\":null,\"deleted_at\":null,\"updated_at\":\"2026-08-16T10:00:00Z\"}"
+                + "}},\"ref\":null}";
+    }
+
+    private static String wireUpdate(String id, String chatId, String content, String status) {
+        return "{\"topic\":\"realtime:messages\",\"event\":\"postgres_changes\",\"payload\":{\"type\":\"postgres_changes\",\"data\":{"
+                + "\"schema\":\"public\",\"table\":\"messages\",\"type\":\"UPDATE\","
+                + "\"record\":{\"id\":\"" + id + "\",\"chat_id\":\"" + chatId + "\",\"sender_id\":\"uuid-other\","
+                + "\"message_type\":\"text\",\"content\":\"" + content + "\",\"status\":\"" + status + "\","
+                + "\"chat_seq\":7,\"created_at\":\"2026-08-16T10:00:00Z\","
+                + "\"edited_at\":\"2026-08-16T11:00:00Z\",\"deleted_at\":null,\"updated_at\":\"2026-08-16T11:00:00Z\"},"
+                + "\"old_record\":{\"id\":\"" + id + "\"}"
+                + "}},\"ref\":null}";
+    }
+
+    private static String wireStatusUpdate(String id, String chatId, String oldStatus, String newStatus) {
+        return "{\"topic\":\"realtime:messages\",\"event\":\"postgres_changes\",\"payload\":{\"type\":\"postgres_changes\",\"data\":{"
+                + "\"schema\":\"public\",\"table\":\"messages\",\"type\":\"UPDATE\","
+                + "\"record\":{\"id\":\"" + id + "\",\"chat_id\":\"" + chatId + "\",\"sender_id\":\"uuid-other\","
+                + "\"message_type\":\"text\",\"content\":\"same\",\"status\":\"" + newStatus + "\","
+                + "\"chat_seq\":7,\"created_at\":\"2026-08-16T10:00:00Z\","
+                + "\"edited_at\":null,\"deleted_at\":null,\"updated_at\":\"2026-08-16T12:00:00Z\"},"
+                + "\"old_record\":{\"id\":\"" + id + "\",\"chat_id\":\"" + chatId + "\","
+                + "\"content\":\"same\",\"status\":\"" + oldStatus + "\"}"
+                + "}},\"ref\":null}";
+    }
+
+    @Test
+    public void wireInsertParsesLiveMessage() {
+        Result r = RealtimeMessageParser.parse(CHAT, wireInsert("m-live", CHAT, 99, "live hello"));
+
+        assertEquals(Kind.MESSAGE_INSERT, r.kind);
+        assertEquals(CHAT, r.chatId);
+        assertNotNull(r.message);
+        assertEquals("m-live", r.message.id);
+        assertEquals("live hello", r.message.content);
+        assertEquals(Long.valueOf(99L), r.message.chatSeq);
+    }
+
+    @Test
+    public void wireUpdateParsesEdit() {
+        Result r = RealtimeMessageParser.parse(CHAT, wireUpdate("m-live", CHAT, "edited live", "sent"));
+
+        assertEquals(Kind.MESSAGE_EDIT, r.kind);
+        assertEquals("edited live", r.message.content);
+    }
+
+    @Test
+    public void wireStatusUpdateParsesStatusAdvance() {
+        Result r = RealtimeMessageParser.parse(CHAT,
+                wireStatusUpdate("m-live", CHAT, "delivered", "read"));
+
+        assertEquals(Kind.MESSAGE_STATUS, r.kind);
+        assertEquals(MessageStatus.READ, r.message.status);
+    }
+
+    @Test
+    public void wireInsertWrongChatIsIgnoredButAnyChatKeepsIt() {
+        assertEquals(Kind.IGNORED,
+                RealtimeMessageParser.parse(CHAT, wireInsert("m-x", "chat-OTHER", 5, "nope")).kind);
+
+        Result r = RealtimeMessageParser.parseAnyChat(wireInsert("m-x", "chat-OTHER", 5, "yep"));
+        assertEquals(Kind.MESSAGE_INSERT, r.kind);
+        assertEquals("chat-OTHER", r.chatId);
+        assertEquals("yep", r.message.content);
+    }
+
+    @Test
+    public void anyChatParsesOwnChatTooAndIgnoresOtherTables() {
+        Result r = RealtimeMessageParser.parseAnyChat(wireInsert("m-y", CHAT, 6, "mine"));
+        assertEquals(Kind.MESSAGE_INSERT, r.kind);
+        assertEquals(CHAT, r.chatId);
+
+        String otherTable = "{\"topic\":\"realtime:messages\",\"event\":\"postgres_changes\","
+                + "\"payload\":{\"type\":\"postgres_changes\",\"data\":{\"schema\":\"public\","
+                + "\"table\":\"stories\",\"type\":\"INSERT\",\"record\":{\"id\":\"s-1\"}}}}";
+        assertEquals(Kind.IGNORED, RealtimeMessageParser.parseAnyChat(otherTable).kind);
+    }
+
+    @Test
+    public void anyChatDeleteCarriesChatId() {
+        String del = "{\"topic\":\"realtime:messages\",\"event\":\"postgres_changes\","
+                + "\"payload\":{\"type\":\"postgres_changes\",\"data\":{\"schema\":\"public\","
+                + "\"table\":\"messages\",\"type\":\"DELETE\","
+                + "\"old_record\":{\"id\":\"m-del\",\"chat_id\":\"" + CHAT + "\"}}}}";
+        Result r = RealtimeMessageParser.parseAnyChat(del);
+        assertEquals(Kind.MESSAGE_DELETE, r.kind);
+        assertEquals(CHAT, r.chatId);
+        assertEquals("m-del", r.deletedMessageId);
+    }
 }

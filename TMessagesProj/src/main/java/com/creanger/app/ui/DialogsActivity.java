@@ -111,6 +111,9 @@ import com.creanger.app.messenger.creanger.data.ChatRepository;
 import com.creanger.app.messenger.creanger.data.CreangerChatHeader;
 import com.creanger.app.messenger.creanger.data.CreangerDialogList;
 import com.creanger.app.messenger.creanger.model.ChatModels.CreangerChat;
+import com.creanger.app.messenger.creanger.realtime.DialogListRealtimeWatcher;
+import com.creanger.app.messenger.creanger.realtime.MessageRealtimeClient;
+import com.creanger.app.messenger.creanger.realtime.SocketMessageRealtimeTransport;
 import com.creanger.app.messenger.DialogObject;
 import com.creanger.app.messenger.Emoji;
 import com.creanger.app.messenger.FileLoader;
@@ -488,6 +491,10 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     private java.util.List<CreangerChat> lastCreangerChats;
     private java.util.Map<String, String[]> lastCreangerPeers;
     private java.util.Map<String, CreangerDialogList.RowState> lastCreangerRows;
+    /** Any-chat realtime tap that refreshes dialog rows live; null when stopped. */
+    private DialogListRealtimeWatcher creangerListWatcher;
+    /** Coalesces realtime nudges: at most one row refresh per window. */
+    private long lastCreangerListRefreshMs;
     private ActionBarMenuItem passcodeItem;
     private ActionBarMenuItem downloadsItem;
     private DownloadProgressIcon downloadProgressIcon;
@@ -2712,6 +2719,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        stopCreangerListRealtime();
         if (observersGroup != null) {
             observersGroup.removeAllObservers();
             observersGroup = null;
@@ -5876,6 +5884,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
         }
         updateCreangerChats();
+        startCreangerListRealtime();
         if (commentView != null) {
             commentView.onResume();
         }
@@ -6055,6 +6064,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     @Override
     public void onPause() {
         super.onPause();
+        stopCreangerListRealtime();
         if (storiesBulletin != null) {
             storiesBulletin.hide();
             storiesBulletin = null;
@@ -6315,6 +6325,83 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
         }
         return CreangerDialogList.rowStateFor(chat, messages, myId, me, senderName, nowMs);
+    }
+
+    /**
+     * Starts the any-chat realtime tap so dialog rows refresh live (new
+     * message / edit / delete in any chat) instead of only on resume. The
+     * tap only nudges — {@link #updateCreangerChats()} stays the single
+     * refresh path, coalesced to one run per 2s window. No-op unless
+     * authenticated; safe to call repeatedly (e.g. onResume).
+     */
+    private void startCreangerListRealtime() {
+        if (!BuildConfig.USE_CREANGER_AUTH || creangerListWatcher != null) {
+            return;
+        }
+        CreangerAuth auth;
+        try {
+            auth = CreangerAuth.getInstance(ApplicationLoader.applicationContext);
+        } catch (Exception e) {
+            return;
+        }
+        if (auth == null || auth.getState() != AuthState.AUTHENTICATED) {
+            return;
+        }
+        String chatBase;
+        String anonKey;
+        try {
+            chatBase = auth.getConfig().getChatBaseUrl();
+            anonKey = auth.getConfig().getSupabaseAnonKey();
+        } catch (Exception e) {
+            return;
+        }
+        if (chatBase == null || chatBase.isEmpty()) {
+            return;
+        }
+        final CreangerAuth authFinal = auth;
+        final SocketMessageRealtimeTransport transport =
+                new SocketMessageRealtimeTransport(realtimeEndpoint(chatBase));
+        transport.setApiKey(anonKey);
+        DialogListRealtimeWatcher watcher = new DialogListRealtimeWatcher(
+                transport,
+                () -> authFinal.getEngine().requireAccessToken(),
+                runnable -> AndroidUtilities.runOnUIThread(runnable),
+                (delayMillis, task) -> AndroidUtilities.runOnUIThread(task, delayMillis),
+                chatId -> {
+                    long now = System.currentTimeMillis();
+                    if (now - lastCreangerListRefreshMs < 2000) {
+                        return;
+                    }
+                    lastCreangerListRefreshMs = now;
+                    updateCreangerChats();
+                });
+        creangerListWatcher = watcher;
+        watcher.start();
+    }
+
+    /** Stops the dialog-list realtime tap (pause/destroy/logout paths). */
+    private void stopCreangerListRealtime() {
+        if (creangerListWatcher != null) {
+            try {
+                creangerListWatcher.destroy();
+            } catch (Exception ignore) {
+            }
+            creangerListWatcher = null;
+        }
+    }
+
+    /** Chat base URL to the Realtime websocket endpoint (mirrors ChatActivity). */
+    private static String realtimeEndpoint(String chatBaseUrl) {
+        String fixed = chatBaseUrl;
+        if (fixed.startsWith("https://")) {
+            fixed = "wss://" + fixed.substring(8);
+        } else if (fixed.startsWith("http://")) {
+            fixed = "ws://" + fixed.substring(7);
+        }
+        while (fixed.endsWith("/")) {
+            fixed = fixed.substring(0, fixed.length() - 1);
+        }
+        return fixed + "/realtime/v1/websocket?vsn=1.0.0";
     }
 
     public void onBecomeFullyVisible() {

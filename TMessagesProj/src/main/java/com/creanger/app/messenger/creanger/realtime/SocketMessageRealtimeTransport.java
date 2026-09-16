@@ -17,6 +17,9 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import javax.net.ssl.SSLSocketFactory;
 
@@ -34,6 +37,19 @@ import javax.net.ssl.SSLSocketFactory;
  * answered automatically; close codes {@code 4003/4007} become a permanent
  * {@link Listener#onTransportUnauthorized}.
  *
+ * Two Phoenix-protocol obligations from the official client that a raw socket
+ * must replicate, otherwise the subscription silently yields nothing:
+ * <ul>
+ *   <li>{@code access_token} push — right after the join, the user JWT is
+ *       pushed as {@code {topic: realtime:messages, event: access_token,
+ *       payload: {access_token}}}. Without it the channel runs as the anon
+ *       role and every row is rejected with {@code errors: ["Error 401:
+ *       Unauthorized"]}.</li>
+ *   <li>Phoenix heartbeat — {@code {topic: phoenix, event: heartbeat}} every
+ *       25s (the official interval); without it the server times the
+ *       connection out and drops it.</li>
+ * </ul>
+ *
  * All callbacks are delivered on an internal reader thread; the client
  * relocates them to its poster.
  */
@@ -41,6 +57,8 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
 
     private static final int CONNECT_TIMEOUT_MS = 15_000;
     private static final int READ_TIMEOUT_MS = 60_000;
+    /** Official Phoenix heartbeat interval (realtime-js HEARTBEAT_INTERVAL). */
+    static final long HEARTBEAT_INTERVAL_MS = 25_000L;
 
     private final String scheme;
     private final String host;
@@ -56,6 +74,8 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
     private volatile boolean closed = true;
     private Listener listener;
     private ExecutorService readerExecutor;
+    private volatile ScheduledExecutorService heartbeatExecutor;
+    private final AtomicLong refCounter = new AtomicLong();
     /**
      * Supabase project anon key, sent as the {@code apikey} header and query
      * param on the realtime handshake. Supabase authenticates the handshake
@@ -138,6 +158,8 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
 
             this.closed = false;
             sendJoin();
+            sendAccessToken(accessToken);
+            startHeartbeat();
             Listener l = this.listener;
             if (l != null) {
                 l.onTransportConnected();
@@ -170,6 +192,7 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
     @Override
     public void close() {
         closed = true;
+        stopHeartbeat();
         if (readerExecutor != null) {
             readerExecutor.shutdownNow();
             readerExecutor = null;
@@ -301,6 +324,91 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
             throw new IOException("failed to build join frame", e);
         }
         sendFrame(WebSocketFrameCodec.OP_TEXT, join.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Pushes the user JWT as a channel {@code access_token} event (the
+     * official client's Realtime Authorization step). The handshake alone
+     * leaves the channel on the anon role, which makes the server reject
+     * every row with {@code Error 401: Unauthorized} — this push is what
+     * actually wires RLS to the subscription. No-op when the token is empty.
+     */
+    private void sendAccessToken(String accessToken) throws IOException {
+        if (accessToken == null || accessToken.isEmpty()) {
+            return;
+        }
+        final String frame;
+        try {
+            frame = buildAccessTokenPayload(accessToken, nextRef());
+        } catch (JSONException e) {
+            throw new IOException("failed to build access_token frame", e);
+        }
+        sendFrame(WebSocketFrameCodec.OP_TEXT, frame.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Builds the channel authorization frame. Public so the exact protocol
+     * shape is unit-testable without a socket.
+     */
+    public static String buildAccessTokenPayload(String accessToken, String ref) throws JSONException {
+        JSONObject envelope = new JSONObject();
+        envelope.put("topic", RealtimeMessageParser.CHANNEL_TOPIC);
+        envelope.put("event", "access_token");
+        envelope.put("payload", new JSONObject().put("access_token", accessToken));
+        envelope.put("ref", ref);
+        return envelope.toString();
+    }
+
+    /**
+     * Builds the Phoenix heartbeat frame (empty payload on the {@code
+     * phoenix} topic). Public so the exact protocol shape is unit-testable
+     * without a socket.
+     */
+    public static String buildHeartbeatPayload(String ref) throws JSONException {
+        JSONObject envelope = new JSONObject();
+        envelope.put("topic", "phoenix");
+        envelope.put("event", "heartbeat");
+        envelope.put("payload", new JSONObject());
+        envelope.put("ref", ref);
+        return envelope.toString();
+    }
+
+    private String nextRef() {
+        return Long.toString(refCounter.incrementAndGet());
+    }
+
+    /** Starts the 25s Phoenix heartbeat; restarts cleanly when already running. */
+    private void startHeartbeat() {
+        stopHeartbeat();
+        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "creanger-realtime-heartbeat");
+            t.setDaemon(true);
+            return t;
+        });
+        heartbeatExecutor = executor;
+        executor.scheduleAtFixedRate(() -> {
+            if (closed) {
+                return;
+            }
+            try {
+                String frame = buildHeartbeatPayload(nextRef());
+                sendFrame(WebSocketFrameCodec.OP_TEXT, frame.getBytes(StandardCharsets.UTF_8));
+            } catch (Exception e) {
+                // A failed heartbeat means the socket is dead: tear down so
+                // the client reconnects (which rejoins + re-authenticates).
+                stopHeartbeat();
+                close();
+                notifyClosed(e instanceof IOException ? (IOException) e : new IOException(e));
+            }
+        }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
+    }
+
+    private void stopHeartbeat() {
+        ScheduledExecutorService executor = heartbeatExecutor;
+        heartbeatExecutor = null;
+        if (executor != null) {
+            executor.shutdownNow();
+        }
     }
 
     /**

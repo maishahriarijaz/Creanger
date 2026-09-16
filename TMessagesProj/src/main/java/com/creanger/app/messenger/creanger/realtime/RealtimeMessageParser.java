@@ -15,18 +15,23 @@ import androidx.annotation.Nullable;
  * of the data plane, so the whole realtime intake is unit-testable without
  * Android.
  *
- * Wire shapes supported (both the current and the legacy client protocols):
+ * Wire shapes supported (the raw Phoenix protocol, plus tolerant fallbacks):
  * <pre>
- *   // modern: payload.data = { schema, table, eventType, new, old }
+ *   // on the wire: payload.data = { schema, table, type, record, old_record }
  *   {"topic":"realtime:messages","event":"postgres_changes",
  *    "payload":{"type":"postgres_changes",
- *               "data":{"schema":"public","table":"messages","eventType":"INSERT",
- *                       "new":{&lt;messages row&gt;}}}}
- *
- *   // legacy: payload.record = &lt;messages row&gt;
- *   {"topic":"realtime:messages","event":"postgres_changes",
- *    "payload":{"record":{&lt;messages row&gt;}}}
+ *               "data":{"schema":"public","table":"messages","type":"INSERT",
+ *                       "record":{&lt;messages row&gt;}}}}
  * </pre>
+ * Fallbacks (kept for older servers/tests): {@code eventType} for {@code
+ * type}, {@code new}/{@code old} for {@code record}/{@code old_record}, and
+ * the legacy {@code payload.record} shape implying an INSERT.
+ *
+ * NOTE: the JS-client callback objects use {@code eventType}/{@code new}/
+ * {@code old} because realtime-js enriches frames before delivery — the raw
+ * socket this client speaks carries {@code type}/{@code record}/
+ * {@code old_record}. Parsing only the enriched shape silently drops every
+ * live event, so the wire shape is primary.
  *
  * Event type mapping on {@code public.messages}:
  * <ul>
@@ -192,6 +197,26 @@ MESSAGE_STATUS,
      * @param frameJson        the raw frame text received from the Realtime server
      */
     public static Result parse(String subscribedChatId, String frameJson) {
+        return parseInternal(subscribedChatId, frameJson);
+    }
+
+    /**
+     * Parses one raw Realtime frame WITHOUT chat filtering: message events
+     * carry their actual {@code chat_id} so a dialog-list watcher can react
+     * to any chat. Used by surfaces subscribed to every chat at once; the
+     * single-chat {@link #parse(String, String)} stays the open-chat path.
+     *
+     * @param frameJson the raw frame text received from the Realtime server
+     */
+    public static Result parseAnyChat(String frameJson) {
+        return parseInternal(null, frameJson);
+    }
+
+    /**
+     * @param subscribedChatId chat to keep, or null for no filtering
+     *                         ({@link #parseAnyChat(String)}).
+     */
+    private static Result parseInternal(String subscribedChatId, String frameJson) {
         if (frameJson == null || frameJson.trim().isEmpty()) {
             return Result.simple(Kind.IGNORED);
         }
@@ -228,7 +253,8 @@ MESSAGE_STATUS,
         }
         JSONObject data = payload.optJSONObject("data");
 
-        // Modern protocol: { data: { schema, table, eventType, new, old } }
+        // Wire protocol: { data: { schema, table, type, record, old_record } }
+        // (fallbacks: eventType for type, new/old for record/old_record).
         if (data != null) {
             String schema = data.optString("schema", null);
             String table = data.optString("table", null);
@@ -254,8 +280,15 @@ MESSAGE_STATUS,
 
     private static Result modern(String subscribedChatId, JSONObject data) {
         String eventType = data.optString("eventType", data.optString("type", null));
-        JSONObject newRecord = data.optJSONObject("new");
-        JSONObject oldRecord = data.optJSONObject("old");
+        // Wire shape first (record/old_record), enriched-shape fallback (new/old).
+        JSONObject newRecord = data.optJSONObject("record");
+        if (newRecord == null) {
+            newRecord = data.optJSONObject("new");
+        }
+        JSONObject oldRecord = data.optJSONObject("old_record");
+        if (oldRecord == null) {
+            oldRecord = data.optJSONObject("old");
+        }
 
         if (EVENT_TYPE_INSERT.equalsIgnoreCase(eventType)) {
             if (newRecord == null) {
@@ -306,10 +339,16 @@ MESSAGE_STATUS,
         JSONObject record;
         boolean added;
         if (EVENT_TYPE_DELETE.equalsIgnoreCase(eventType)) {
-            record = data.optJSONObject("old");
+            record = data.optJSONObject("old_record");
+            if (record == null) {
+                record = data.optJSONObject("old");
+            }
             added = false;
         } else {
-            record = data.optJSONObject("new");
+            record = data.optJSONObject("record");
+            if (record == null) {
+                record = data.optJSONObject("new");
+            }
             added = true;
         }
         if (record == null) {
@@ -336,8 +375,9 @@ MESSAGE_STATUS,
             return Result.simple(Kind.IGNORED);
         }
         String chatId = nullIfEmpty(record.optString("chat_id", null));
-        if (chatId == null || !chatId.equals(subscribedChatId)) {
-            // Never surface another chat's message into the open chat.
+        if (chatId == null || (subscribedChatId != null && !chatId.equals(subscribedChatId))) {
+            // Never surface another chat's message into the open chat (a null
+            // subscribedChatId disables the filter for any-chat watchers).
             return Result.simple(Kind.IGNORED);
         }
         // On Android, optString never yields its default for JSON null (it
@@ -392,8 +432,11 @@ MESSAGE_STATUS,
     }
 
     private static Result deletionFromRecord(String subscribedChatId, JSONObject record) {
-        String chatId = record.optString("chat_id", null);
-        if (chatId == null || !chatId.equals(subscribedChatId)) {
+        String chatId = nullIfEmpty(record.optString("chat_id", null));
+        if (chatId == null || (subscribedChatId != null && !chatId.equals(subscribedChatId))) {
+            // Hard DELETEs only carry the PK under default replica identity,
+            // so a chat-less tombstone cannot be routed and is ignored (soft
+            // deletes arrive as UPDATEs with the full row and are handled).
             return Result.simple(Kind.IGNORED);
         }
         return Result.delete(chatId, pickId(record));
@@ -461,7 +504,8 @@ MESSAGE_STATUS,
         String chatId = data.optString("chat_id", null);
         String userId = data.optString("user_id", null);
         boolean isTyping = data.optBoolean("is_typing", false);
-        if (chatId == null || userId == null || !chatId.equals(subscribedChatId)) {
+        if (chatId == null || userId == null
+                || (subscribedChatId != null && !chatId.equals(subscribedChatId))) {
             return Result.simple(Kind.IGNORED);
         }
         return Result.typing(chatId, userId, isTyping);
