@@ -111,6 +111,7 @@ import com.creanger.app.messenger.creanger.data.ChatRepository;
 import com.creanger.app.messenger.creanger.data.CreangerChatHeader;
 import com.creanger.app.messenger.creanger.data.CreangerDialogList;
 import com.creanger.app.messenger.creanger.model.ChatModels.CreangerChat;
+import com.creanger.app.messenger.creanger.realtime.CreangerNetworkMonitor;
 import com.creanger.app.messenger.creanger.realtime.DialogListRealtimeWatcher;
 import com.creanger.app.messenger.creanger.realtime.MessageRealtimeClient;
 import com.creanger.app.messenger.creanger.realtime.SocketMessageRealtimeTransport;
@@ -6376,6 +6377,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     updateCreangerChats();
                 });
         creangerListWatcher = watcher;
+        watcher.setNetworkMonitor(CreangerNetworkMonitor.shared());
         watcher.start();
     }
 

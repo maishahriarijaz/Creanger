@@ -477,13 +477,19 @@ public class MessageRealtimeClientTest {
 
         client.subscribe(CHAT, 0);
         t.connected();
+        // Consecutive failures WITHOUT a successful reconnect grow the ladder
+        // to its cap (anti-hammer guard for a dead backend).
         long[] expected = {1000, 2000, 4000, 8000, 16000, 30000, 30000};
         for (int i = 0; i < expected.length; i++) {
             t.disconnect(null);
             assertEquals(expected[i], scheduler.delays.get(i).longValue());
-            scheduler.runAll();
-            t.connected();
         }
+        // A successful reconnect restarts from the fast end: short Wi-Fi
+        // blips must never earn a 30 s wait.
+        scheduler.runAll();
+        t.connected();
+        t.disconnect(null);
+        assertEquals(1000L, scheduler.delays.get(expected.length).longValue());
     }
 
     @Test

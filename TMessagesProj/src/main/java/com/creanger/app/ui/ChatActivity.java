@@ -159,6 +159,7 @@ import com.creanger.app.messenger.creanger.model.MessageModels.MessageStatus;
 import com.creanger.app.messenger.creanger.model.MessageModels.MessageStatusUpdate;
 import com.creanger.app.messenger.creanger.model.MessageModels.MessageReaction;
 import com.creanger.app.messenger.creanger.model.MessageModels.MessageType;
+import com.creanger.app.messenger.creanger.realtime.CreangerNetworkMonitor;
 import com.creanger.app.messenger.creanger.realtime.MessageRealtimeClient;
 import com.creanger.app.messenger.creanger.realtime.RealtimeLatency;
 import com.creanger.app.messenger.creanger.realtime.RealtimeLatencySink;
@@ -13567,7 +13568,9 @@ public class ChatActivity extends BaseFragment implements
                     @Override
                     public void onMessageDeleted(String chatId, String messageId) {
                         applyCreangerRealtimeDelete(chatId, messageId);
-                    }                    @Override
+                    }
+
+                    @Override
                     public void onReactionChanged(String chatId, MessageReaction reaction, boolean added) {
                         applyCreangerRealtimeReaction(chatId, reaction, added);
                     }
@@ -13619,6 +13622,7 @@ public class ChatActivity extends BaseFragment implements
                 creangerLatencyBadge.onLatencySample(kind, ms);
             }
         });
+        creangerRealtimeClient.setNetworkMonitor(CreangerNetworkMonitor.shared());
         creangerRealtimeClient.subscribe(getCreangerChatId(), creangerLatestSeq());
     }
 
@@ -15083,6 +15087,11 @@ public class ChatActivity extends BaseFragment implements
         if (creangerMessageAsync == null || creangerChatId == null || text == null || text.length() == 0) {
             return false;
         }
+        if (CreangerNetworkMonitor.isOfflineNow(getContext())) {
+            creangerBlockUnsupportedSend(0, 0,
+                    LocaleController.getString(R.string.CreangerErrorNetworkError));
+            return true;
+        }
         creangerClearTyping();
         creangerSendTyping(false);
         creangerClearDraftAfterSend();
@@ -15111,6 +15120,18 @@ public class ChatActivity extends BaseFragment implements
                     @Override
                     public void onError(@Nullable CreangerApiException error, @Nullable Throwable ioError) {
                         syncCreangerMessages();
+                        String msg = error != null ? error.getMessage()
+                                : (ioError != null ? ioError.getMessage() : null);
+                        boolean offline = CreangerNetworkMonitor.isOfflineNow(getContext());
+                        String text = offline
+                                ? LocaleController.getString(R.string.CreangerErrorNetworkError)
+                                : "Send failed: " + (msg != null ? msg : "unknown error");
+                        AndroidUtilities.runOnUIThread(() -> {
+                            Context ctx = getParentActivity();
+                            if (ctx != null) {
+                                Toast.makeText(ctx, text, Toast.LENGTH_SHORT).show();
+                            }
+                        });
                     }
                 });
         syncCreangerMessages();

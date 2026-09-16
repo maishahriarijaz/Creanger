@@ -74,6 +74,11 @@ public final class SocketMessageRealtimeTransport implements MessageRealtimeTran
     private volatile OutputStream output;
     private volatile InputStream input;
     private volatile boolean closed = true;
+
+    /** True while the underlying socket is open (open → first close). */
+    public boolean isConnected() {
+        return !closed;
+    }
     private Listener listener;
     private ExecutorService readerExecutor;
     private volatile ScheduledExecutorService heartbeatExecutor;

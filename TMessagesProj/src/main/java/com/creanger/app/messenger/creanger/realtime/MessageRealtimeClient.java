@@ -154,6 +154,13 @@ public final class MessageRealtimeClient {
     private volatile long reconnectBackoffMs = INITIAL_BACKOFF_MS;
     private volatile boolean needsRecovery;
     private volatile boolean connecting;
+    /**
+     * Connectivity watcher (device only, absent in JVM tests): shortens the
+     * backoff while the network is up and retries the instant it returns.
+     */
+    @Nullable
+    private volatile CreangerNetworkMonitor networkMonitor;
+    private volatile long connectTimeMs;
 
     public MessageRealtimeClient(MessageRealtimeTransport transport,
                                  AccessTokenProvider tokenProvider,
@@ -329,7 +336,7 @@ public final class MessageRealtimeClient {
 
     /** Async entry: runs the blocking open on the background executor. */
     private void connect() {
-        if (!active || chatId == null || connecting) {
+        if (!active || chatId == null || connecting || connected) {
             return;
         }
         connecting = true;
@@ -368,6 +375,14 @@ public final class MessageRealtimeClient {
             }
         }
     }
+    /**
+     * Attaches the connectivity watcher. While the network is up a reconnect
+     * waits at most a few seconds; while it is down the reconnect fires the
+     * moment the network returns, instead of waiting out the backoff step.
+     */
+    public void setNetworkMonitor(@Nullable CreangerNetworkMonitor monitor) {
+        this.networkMonitor = monitor;
+    }
 
     /** Fires on every gap/failure so reconnect always recovers missed rows. */
     private void scheduleReconnect(Throwable cause) {
@@ -376,11 +391,32 @@ public final class MessageRealtimeClient {
             return;
         }
         this.needsRecovery = true;
-        long delay = reconnectBackoffMs;
+        final CreangerNetworkMonitor monitor = networkMonitor;
+        final boolean networkUp = monitor != null && monitor.isNetworkAvailable();
+        // A live network deserves a fast retry — the classic failure is a
+        // short Wi-Fi hiccup, where the full exponential ladder only adds
+        // dead air on top of the recovery sync.
+        long delay = networkUp
+                ? Math.min(reconnectBackoffMs,
+                        CreangerNetworkMonitor.initialBackoffForMs(System.currentTimeMillis() - connectTimeMs))
+                : reconnectBackoffMs;
         reconnectBackoffMs = Math.min(reconnectBackoffMs * 2, MAX_BACKOFF_MS);
         scheduler.schedule(delay, () -> {
             if (active && chat.equals(chatId)) {
                 connect();
+            }
+        });
+        if (monitor == null || networkUp) {
+            return;
+        }
+        // Offline: retry the moment the network returns.
+        monitor.addListener(new CreangerNetworkMonitor.Listener() {
+            @Override
+            public void onNetworkAvailable() {
+                monitor.removeListener(this);
+                if (active && chat.equals(chatId)) {
+                    connect();
+                }
             }
         });
     }
@@ -419,6 +455,10 @@ public final class MessageRealtimeClient {
             }
             boolean wasConnected = connected;
             connected = true;
+            // Live again: the next drop restarts from the fast end of the
+            // backoff ladder.
+            reconnectBackoffMs = INITIAL_BACKOFF_MS;
+            connectTimeMs = System.currentTimeMillis();
             final String chat = chatId;
             final long seq = lastKnownSeq;
             if (wasConnected || needsRecovery) {

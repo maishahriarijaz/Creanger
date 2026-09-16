@@ -50,6 +50,9 @@ public final class DialogListRealtimeWatcher {
     private volatile boolean active;
     private volatile boolean connecting;
     private volatile long reconnectBackoffMs = INITIAL_BACKOFF_MS;
+    /** Connectivity watcher (device only): fast/instant reconnects. */
+    @Nullable
+    private volatile CreangerNetworkMonitor networkMonitor;
 
     public DialogListRealtimeWatcher(MessageRealtimeTransport transport,
                                      AccessTokenProvider tokenProvider,
@@ -115,6 +118,13 @@ public final class DialogListRealtimeWatcher {
         if (!active || connecting) {
             return;
         }
+        // No isConnected probe on the transport: a redundant open is harmless
+        // (idempotent join, dedup handles echoes) while blocking a stale retry
+        // after a successful instant-recovery connect is not.
+        if (transport instanceof SocketMessageRealtimeTransport
+                && ((SocketMessageRealtimeTransport) transport).isConnected()) {
+            return;
+        }
         connecting = true;
         connectExecutor.execute(() -> {
             try {
@@ -143,15 +153,40 @@ public final class DialogListRealtimeWatcher {
         }
     }
 
+    /**
+     * Attaches the connectivity watcher: fast retries while the network is
+     * up, and an instant retry the moment it returns after an outage.
+     */
+    public void setNetworkMonitor(@Nullable CreangerNetworkMonitor monitor) {
+        this.networkMonitor = monitor;
+    }
+
     private void scheduleReconnect() {
         if (!active) {
             return;
         }
-        long delay = reconnectBackoffMs;
+        final CreangerNetworkMonitor monitor = networkMonitor;
+        final boolean networkUp = monitor != null && monitor.isNetworkAvailable();
+        long delay = networkUp
+                ? Math.min(reconnectBackoffMs, CreangerNetworkMonitor.initialBackoffForMs(0L))
+                : reconnectBackoffMs;
         reconnectBackoffMs = Math.min(reconnectBackoffMs * 2, MAX_BACKOFF_MS);
         scheduler.schedule(delay, () -> {
             if (active) {
                 connect();
+            }
+        });
+        if (monitor == null || networkUp) {
+            return;
+        }
+        // Offline: retry the moment the network returns.
+        monitor.addListener(new CreangerNetworkMonitor.Listener() {
+            @Override
+            public void onNetworkAvailable() {
+                monitor.removeListener(this);
+                if (active) {
+                    connect();
+                }
             }
         });
     }
@@ -161,7 +196,9 @@ public final class DialogListRealtimeWatcher {
         public void onTransportConnected() {
             if (!active) {
                 transport.close();
+                return;
             }
+            reconnectBackoffMs = INITIAL_BACKOFF_MS;
         }
 
         @Override
